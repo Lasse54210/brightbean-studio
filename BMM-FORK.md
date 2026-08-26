@@ -100,6 +100,31 @@ bovenop upstream, en blijft de voetafdruk hierboven te controleren met
 forceer nooit. Een verkeerd opgeloste rebase in een uploadpad kost meer dan een
 week wachten.
 
+## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
+
+De browser PUT de parts **rechtstreeks** naar de opslag met een presigned URL. Die
+URL moet dus ondertekend zijn voor een host die de browser kan bereiken.
+
+In onze opstelling staat `S3_ENDPOINT_URL` bewust op een intern adres
+(`http://bmm-minio:9000`), zodat serververkeer de tunnel niet op hoeft. Een URL die
+daarvoor is ondertekend kan een browser niet resolven, en dan **hangt de upload**
+tot hij afloopt in plaats van dat hij netjes faalt. Dat is precies wat er misging
+bij de eerste uitrol.
+
+Zet daarom in de `.env` van de stack:
+
+```
+S3_PUBLIC_ENDPOINT_URL=https://s3.bluemonkeymedia.nl
+```
+
+Dat moet **exact** de host zijn die de browser aanroept, inclusief scheme: een
+SigV4-handtekening dekt de host. Alleen de part-bytes gaan hierlangs; aanmaken,
+opsommen, afronden en afbreken blijven op de interne endpoint.
+
+Staat de variabele niet, dan tekent de gewone opslagclient en werkt alles zoals
+voorheen. Voor een opstelling waar de app en de browser dezelfde endpoint zien is
+er dus niets te doen.
+
 ## De "Compare & pull request"-banner op GitHub
 
 Die staat er, en die kun je niet weghalen: GitHub zet hem op elke fork waarvan een

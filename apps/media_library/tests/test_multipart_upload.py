@@ -187,6 +187,41 @@ def test_storage_key_keeps_a_readable_name_without_becoming_unsafe():
     assert a != b
 
 
+class _FakeSigner:
+    def generate_presigned_url(self, *args, **kwargs):
+        return "internal://signed-by-the-storage-client"
+
+
+def test_part_urls_are_signed_for_the_public_host(monkeypatch, settings):
+    # The bug this guards against: the server may talk to storage on an internal
+    # address, and a URL signed for that host is useless in a browser. It cannot
+    # resolve the name, so the upload hangs instead of failing, which is far
+    # harder to diagnose. With S3_PUBLIC_ENDPOINT_URL set, part URLs must carry
+    # the public host.
+    monkeypatch.setattr(multipart, "_client_and_bucket", lambda: (_FakeSigner(), "brightbean-media"))
+    monkeypatch.setattr(multipart, "_normalize", lambda key: key)
+    monkeypatch.setenv("S3_PUBLIC_ENDPOINT_URL", "https://s3.example.test")
+    settings.AWS_ACCESS_KEY_ID = "key"
+    settings.AWS_SECRET_ACCESS_KEY = "secret"
+    settings.AWS_S3_REGION_NAME = "auto"
+
+    url = multipart.presign_part("media_library/2026/08/clip.mp4", "upload-1", 3)
+
+    assert url.startswith("https://s3.example.test/brightbean-media/media_library/2026/08/clip.mp4")
+    assert "X-Amz-Signature=" in url
+    assert "partNumber=3" in url
+    assert "uploadId=upload-1" in url
+
+
+def test_without_a_public_endpoint_the_storage_client_signs(monkeypatch):
+    # Unset, everything keeps working the way it did: one client, one endpoint.
+    monkeypatch.setattr(multipart, "_client_and_bucket", lambda: (_FakeSigner(), "bucket"))
+    monkeypatch.setattr(multipart, "_normalize", lambda key: key)
+    monkeypatch.delenv("S3_PUBLIC_ENDPOINT_URL", raising=False)
+
+    assert multipart.presign_part("k", "u", 1) == "internal://signed-by-the-storage-client"
+
+
 def test_max_file_size_needs_more_than_one_part():
     # A guard against the feature quietly becoming pointless: if the largest
     # allowed file fits in a single part, nothing is ever chunked.
