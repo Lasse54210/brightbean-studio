@@ -31,7 +31,7 @@ from . import multipart
 from .models import MediaAsset, MediaFolder, PendingUpload
 from .quotas import StorageQuotaExceededError, enforce_storage_quota
 from .services import inspect_uploaded_object, register_uploaded_asset
-from .storage import delete_object, generate_storage_key, is_s3_backend
+from .storage import delete_object, is_s3_backend
 from .tasks import process_media_asset
 from .validators import MAX_FILE_SIZES
 from .views import _get_workspace_or_404
@@ -109,7 +109,7 @@ def multipart_start(request, workspace_id):
 
     # Server-chosen key: the client never supplies a path, so it cannot traverse
     # or overwrite somebody else's object.
-    storage_key = generate_storage_key(filename)
+    storage_key = multipart.storage_key_with_name(filename)
     content_type = str(body.get("content_type") or "application/octet-stream")
     upload_id = multipart.start_multipart(storage_key, content_type)
 

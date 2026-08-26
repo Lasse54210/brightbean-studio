@@ -159,6 +159,34 @@ def test_complete_uses_the_buckets_etags_not_the_clients(monkeypatch):
     ]
 
 
+def test_storage_key_keeps_a_readable_name_without_becoming_unsafe():
+    # The download redirects to the object URL, and with a custom storage domain
+    # that URL is unsigned, so the last path segment is the filename the browser
+    # saves. A bare UUID makes every download unrecognisable, hence the name. It
+    # must not cost any of the safety of generate_storage_key.
+    key = multipart.storage_key_with_name("Zomercampagne Aflevering 2.mp4")
+    assert key.startswith("media_library/")
+    assert key.endswith("-Zomercampagne-Aflevering-2.mp4")
+
+    # Traversal and a smuggled second extension cannot survive.
+    traversal = multipart.storage_key_with_name("../../etc/passwd")
+    assert ".." not in traversal
+    assert traversal.startswith("media_library/")
+
+    double = multipart.storage_key_with_name("evil.mp4.exe")
+    assert not double.endswith(".exe")
+
+    # A name that sanitizes to nothing still yields a usable key.
+    empty = multipart.storage_key_with_name("...")
+    assert empty.startswith("media_library/")
+    assert not empty.endswith("-")
+
+    # Two uploads of the same filename never collide.
+    a = multipart.storage_key_with_name("clip.mp4")
+    b = multipart.storage_key_with_name("clip.mp4")
+    assert a != b
+
+
 def test_max_file_size_needs_more_than_one_part():
     # A guard against the feature quietly becoming pointless: if the largest
     # allowed file fits in a single part, nothing is ever chunked.
