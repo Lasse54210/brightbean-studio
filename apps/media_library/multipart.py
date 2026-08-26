@@ -23,6 +23,7 @@ supplies bytes directly, so nothing it claims is trusted.
 
 from __future__ import annotations
 
+import os
 import uuid
 
 from django.conf import settings
@@ -133,13 +134,50 @@ def find_upload_id(storage_key: str) -> str | None:
     return None
 
 
+def _signing_client_and_bucket():
+    """Client used only to SIGN part URLs, which a browser then calls.
+
+    This exists because the endpoint the server talks to is not always the
+    endpoint the browser can reach. A deployment may point ``S3_ENDPOINT_URL`` at
+    an internal address so that server-side traffic never leaves the host, and a
+    URL signed for that host is useless in a browser: it cannot resolve the name,
+    so the upload simply hangs until it times out.
+
+    Set ``S3_PUBLIC_ENDPOINT_URL`` to the address the browser can reach and part
+    URLs get signed for that host instead. A SigV4 signature covers the host, so
+    this has to be the exact host the browser will call, scheme included.
+
+    Everything else (creating, listing, completing, aborting) keeps using the
+    normal client, so only the part bytes travel over the public route.
+    """
+    public = os.environ.get("S3_PUBLIC_ENDPOINT_URL", "").strip()
+    client, bucket = _client_and_bucket()
+    if not public:
+        return client, bucket
+
+    import boto3
+    from botocore.config import Config
+
+    signing = boto3.session.Session().client(
+        "s3",
+        endpoint_url=public.rstrip("/"),
+        region_name=getattr(settings, "AWS_S3_REGION_NAME", None) or "auto",
+        aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", ""),
+        aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", ""),
+        # Path style: MinIO serves https://host/bucket/key. On AWS or Scaleway,
+        # which use virtual-host style, drop this.
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+    return signing, bucket
+
+
 def presign_part(storage_key: str, upload_id: str, part_number: int) -> str:
     """Presigned PUT URL for one part.
 
     The URL pins bucket, key, upload and part number, so a client holding it can
     only write the one part it was issued for.
     """
-    client, bucket = _client_and_bucket()
+    client, bucket = _signing_client_and_bucket()
     return str(
         client.generate_presigned_url(
             "upload_part",
