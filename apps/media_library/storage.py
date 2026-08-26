@@ -23,8 +23,17 @@ def is_s3_backend() -> bool:
 
     Detected by module path rather than ``isinstance`` so we never import the
     S3 backend (and transitively boto3) on local-filesystem deployments.
+
+    ``__class__`` and not ``type()``: ``default_storage`` is a lazy proxy, and
+    ``type()`` returns the proxy's own class (``django.core.files.storage``),
+    never the backend behind it. With ``type()`` this returns False even when S3
+    is configured correctly, which silently disables every presigned upload path.
+    ``__class__`` is proxied through to the wrapped object, so it reports the
+    real backend. Measured against a live S3 configuration:
+    ``type(...).__module__`` gave ``django.core.files.storage`` while
+    ``__class__.__module__`` gave ``storages.backends.s3``.
     """
-    return type(default_storage).__module__.startswith("storages.backends.s3")
+    return default_storage.__class__.__module__.startswith("storages.backends.s3")
 
 
 def _client_and_bucket():
