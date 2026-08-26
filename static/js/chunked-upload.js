@@ -23,9 +23,14 @@
   // costs browser memory, since each part is held while it is in flight.
   var PARALLEL = 3;
 
+  // Same lookup as the composer's own upload code, cookie fallback included. The
+  // hidden input is not on every page that can upload, and without the fallback
+  // the very first request is rejected by CSRF, so the upload never even starts.
   function csrf() {
     var el = document.querySelector("[name=csrfmiddlewaretoken]");
-    return el ? el.value : "";
+    if (el && el.value) return el.value;
+    var m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : "";
   }
 
   // The chunked part endpoints live under the workspace-scoped media URL. Derive
@@ -321,8 +326,12 @@
             document.body.dispatchEvent(new CustomEvent("previewUpdate"));
           })
           .catch(function (err) {
-            console.error("[chunked-upload]", err);
+            // Loudly, and on the thumb itself: a red tile with a Retry button and
+            // no reason is what made this take four rounds to diagnose.
+            var reden = (err && err.message) || String(err);
+            console.error("[chunked-upload] " + file.name + ": " + reden);
             if (self._showUploadError) self._showUploadError(thumb, file);
+            if (thumb) thumb.setAttribute("title", reden);
           })
           .finally(function () {
             self.isUploading = false;
