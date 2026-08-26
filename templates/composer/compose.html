@@ -2992,4 +2992,9 @@ function composerApp() {
     }
 })();
 </script>
+{# Chunked upload, for files above the proxy's per-request body cap. Loaded after
+   the block above on purpose: it wraps the global composerApp() defined there and
+   replaces only uploadFile, so this template needs no other change. See
+   apps/media_library/multipart.py. #}
+<script src="{% static 'js/chunked-upload.js' %}" nonce="{{ request.csp_nonce }}"></script>
 {% endblock %}

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import multipart_views, views
 
 app_name = "composer"
 
@@ -52,6 +52,19 @@ urlpatterns = [
     path("compose/attach-pending-media/", views.attach_pending_media, name="attach_pending_media"),
     path("compose/upload-media/", views.upload_media, name="upload_media"),
     path("compose/<uuid:post_id>/upload-media/", views.upload_media, name="upload_media_post"),
+    # Chunked upload for files above the proxy's per-request body cap. The parts
+    # go through the media library endpoints; only the finish is composer-specific
+    # because it has to attach the asset and answer with the same partial.
+    path(
+        "compose/upload-media/chunked/<uuid:pending_id>/finish/",
+        multipart_views.multipart_finish,
+        name="multipart_finish",
+    ),
+    path(
+        "compose/<uuid:post_id>/upload-media/chunked/<uuid:pending_id>/finish/",
+        multipart_views.multipart_finish,
+        name="multipart_finish_post",
+    ),
     path("compose/<uuid:post_id>/remove-media/<uuid:media_id>/", views.remove_media, name="remove_media"),
     path("compose/remove-pending-media/<uuid:asset_id>/", views.remove_pending_media, name="remove_pending_media"),
     # Drafts

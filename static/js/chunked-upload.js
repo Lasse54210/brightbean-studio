@@ -28,11 +28,16 @@
     return el ? el.value : "";
   }
 
+  // The chunked part endpoints live under the workspace-scoped media URL. Derive
+  // that from the current page so this file needs no template variables, and so
+  // it also works from the composer, whose own path has no /media/ in it.
+  function mediaBase() {
+    var m = window.location.pathname.match(/^(\/workspace\/[^/]+\/)/);
+    return (m ? m[1] : "/") + "media/";
+  }
+
   function urlFor(path) {
-    // The library lives under the workspace-scoped media URL; derive the base
-    // from the current page so this file needs no template variables.
-    var base = window.location.pathname.replace(/\/media\/.*$/, "/media/");
-    return base + path;
+    return mediaBase() + path;
   }
 
   function postJson(path, body) {
@@ -74,7 +79,15 @@
     });
   }
 
-  async function uploadOneChunked(file, folderId, onProgress) {
+  /**
+   * Upload one file in parts.
+   *
+   * `opts.finish` false stops after the last part and hands back the session id,
+   * for callers that have their own finish endpoint (the composer attaches the
+   * asset to a post and answers with HTML, which the media library does not).
+   */
+  async function uploadOneChunked(file, folderId, onProgress, opts) {
+    opts = opts || {};
     var started = await postJson("upload/chunked/", {
       filename: file.name,
       size: file.size,
@@ -204,6 +217,10 @@
       return { ok: false, error: failed };
     }
 
+    if (opts.finish === false) {
+      return { ok: true, uploadId: session.upload_id };
+    }
+
     var finished = await postJson(
       "upload/chunked/" + session.upload_id + "/finish/",
       folderId ? { folder_id: folderId } : {}
@@ -211,9 +228,113 @@
     if (!finished.ok) {
       return { ok: false, error: await errorText(finished, "Could not finish upload") };
     }
-    return { ok: true };
+    return { ok: true, uploadId: session.upload_id };
   }
 
+  // ── Composer ────────────────────────────────────────────────────────────
+  // The composer has its own upload endpoint that takes the file in one request
+  // and answers with a rendered partial. That is the path most people actually
+  // use, and it is where a large video is cut off by the proxy: the connection
+  // is reset, so the bar fills and then goes red with a Retry button.
+  //
+  // Same approach as below: wrap the global factory and replace one method, so
+  // the template keeps its own markup and progress handling.
+  var originalComposer = window.composerApp;
+  if (typeof originalComposer === "function") {
+    window.composerApp = function () {
+      var component = originalComposer.apply(this, arguments);
+      var originalUpload = component.uploadFile;
+
+      component.uploadFile = function (file) {
+        if (!file || file.size <= CHUNKED_FROM_BYTES) {
+          return originalUpload.call(this, file);
+        }
+        var self = this;
+
+        // Same placeholder and progress ring as the single-request path, built
+        // here so the template does not have to change. Keep the markup in step
+        // with uploadFile in compose.html if that ever moves.
+        var mediaList = document.getElementById("media-list");
+        var thumb = document.createElement("div");
+        thumb.className = "media-thumb";
+        thumb.id = "upload-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+        thumb.innerHTML =
+          '<div class="w-full h-full bg-stone-100 flex items-center justify-center"></div>' +
+          '<div class="upload-overlay"><svg width="28" height="28" viewBox="0 0 36 36">' +
+          '<circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="3"/>' +
+          '<circle class="upload-progress-ring" cx="18" cy="18" r="14" fill="none" stroke="white"' +
+          ' stroke-width="3" stroke-dasharray="87.96" stroke-dashoffset="87.96"' +
+          ' stroke-linecap="round" transform="rotate(-90 18 18)"/></svg></div>';
+        if (mediaList) mediaList.appendChild(thumb);
+
+        if (file.type && file.type.indexOf("video/") === 0) {
+          var video = document.createElement("video");
+          video.src = URL.createObjectURL(file);
+          video.className = "w-full h-full object-cover";
+          video.muted = true;
+          video.preload = "metadata";
+          var placeholder = thumb.querySelector(".bg-stone-100");
+          if (placeholder) placeholder.replaceWith(video);
+        }
+
+        var ring = thumb.querySelector(".upload-progress-ring");
+        var circumference = 87.96;
+
+        self.isUploading = true;
+        uploadOneChunked(
+          file,
+          null,
+          function (percent) {
+            if (ring) ring.style.strokeDashoffset = circumference * (1 - percent / 100);
+          },
+          { finish: false },
+        )
+          .then(async function (result) {
+            if (!result.ok) throw new Error(result.error || "Upload failed");
+
+            // The post id can appear during the upload (autosave), so read it as
+            // late as possible; that is also what uploadUrl does.
+            var postId = self.autosavedPostId || null;
+            var base = window.location.pathname.replace(/\/compose\/.*$/, "/compose/");
+            var url = postId
+              ? base + postId + "/upload-media/chunked/" + result.uploadId + "/finish/"
+              : base + "upload-media/chunked/" + result.uploadId + "/finish/";
+
+            var res = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() },
+              body: JSON.stringify({}),
+            });
+            if (!res.ok) throw new Error(await errorText(res, "Could not finish upload"));
+
+            var html = await res.text();
+            thumb.insertAdjacentHTML("afterend", html);
+            var inserted = thumb.nextElementSibling;
+            thumb.remove();
+            if (inserted && window.htmx) window.htmx.process(inserted.parentElement);
+            if (file.type && file.type.indexOf("image/") === 0 && self._applyYoutubeThumbnail) {
+              self._applyYoutubeThumbnail(
+                res.headers.get("X-Uploaded-Asset-Id"),
+                res.headers.get("X-Uploaded-Asset-Url"),
+              );
+            }
+            document.body.dispatchEvent(new CustomEvent("previewUpdate"));
+          })
+          .catch(function (err) {
+            console.error("[chunked-upload]", err);
+            if (self._showUploadError) self._showUploadError(thumb, file);
+          })
+          .finally(function () {
+            self.isUploading = false;
+            if (self._processQueue) self._processQueue();
+          });
+      };
+
+      return component;
+    };
+  }
+
+  // ── Media library ───────────────────────────────────────────────────────
   var original = window.mediaLibrary;
   if (typeof original !== "function") return;
 
