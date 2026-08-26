@@ -347,6 +347,34 @@ if STORAGE_BACKEND.lower() == "s3":
         CSP_MEDIA_SRC = (*CSP_MEDIA_SRC, _storage_origin)  # type: ignore[assignment]
         CSP_IMG_SRC = (*CSP_IMG_SRC, _storage_origin)  # type: ignore[assignment]
 
+    # The chunked upload PUTs its parts to storage straight from the browser, and
+    # connect-src governs XMLHttpRequest/fetch. Without the storage origin here
+    # the browser refuses every part upload before a byte leaves the machine.
+    # CORS on the bucket cannot help with that, and curl never shows it because
+    # CSP only exists in browsers; development and tests run report-only, so an
+    # omission here surfaces in production first. Part URLs are signed for
+    # S3_PUBLIC_ENDPOINT_URL when that is set (see media_library/multipart.py),
+    # so that origin comes first; the storage origin covers deployments that
+    # serve bucket and app over one public host.
+    _connect_origins: list[str] = []
+    for _candidate in (
+        env("S3_PUBLIC_ENDPOINT_URL", default=""),
+        AWS_S3_CUSTOM_DOMAIN or AWS_S3_ENDPOINT_URL,
+    ):
+        _candidate = (_candidate or "").strip()
+        if not _candidate:
+            continue
+        if not _candidate.startswith(("http://", "https://")):
+            _candidate = f"https://{_candidate}"
+        _parsed = urlparse(_candidate)
+        _origin = f"{_parsed.scheme}://{_parsed.hostname}"
+        if _parsed.port:
+            _origin = f"{_origin}:{_parsed.port}"
+        if _origin not in _connect_origins and _origin not in CSP_CONNECT_SRC:
+            _connect_origins.append(_origin)
+    if _connect_origins:
+        CSP_CONNECT_SRC = (*CSP_CONNECT_SRC, *_connect_origins)  # type: ignore[assignment]
+
 # Media Library
 MEDIA_LIBRARY_MAX_IMAGE_SIZE = 20 * 1024 * 1024  # 20MB
 MEDIA_LIBRARY_MAX_VIDEO_SIZE = 1024 * 1024 * 1024  # 1GB
