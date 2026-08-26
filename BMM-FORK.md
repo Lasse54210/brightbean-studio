@@ -100,6 +100,25 @@ bovenop upstream, en blijft de voetafdruk hierboven te controleren met
 forceer nooit. Een verkeerd opgeloste rebase in een uploadpad kost meer dan een
 week wachten.
 
+## De "Compare & pull request"-banner op GitHub
+
+Die staat er, en die kun je niet weghalen: GitHub zet hem op elke fork waarvan een
+tak voorloopt op het origineel. Twee dingen om te weten:
+
+- **Die knop maakt een pull request naar upstream**, niet naar onze eigen fork.
+  Er staat dus niets klaar en er is niets misgegaan; GitHub biedt alleen aan onze
+  patch naar brightbeanxyz te sturen. Doe dat bewust of niet, maar niet per
+  ongeluk.
+- **De standaardtak van de fork is `bmm/gestukte-upload`**, niet `main`. Dat is
+  belangrijker dan het lijkt: stond hij op `main`, dan levert een kale
+  `git clone` van deze fork upstream-code **zonder** onze patch op, en dat is
+  precies het soort verrassing dat je op een server ontdekt. Nu krijgt een clone
+  meteen de goede tak.
+
+`main` blijft bewust een schone spiegel van upstream. Het bijwerkscript rebaset op
+`upstream/main` en heeft die spiegel niet nodig, maar het is handig om te kunnen
+vergelijken.
+
 ## Wij taggen, want upstream doet dat niet
 
 Upstream heeft **nul tags** (nagekeken 2026-08-25, 529 commits sinds maart). Er is
