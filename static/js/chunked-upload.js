@@ -145,20 +145,46 @@
 
     async function worker() {
       while (index < todo.length && !failed) {
-        var n = todo[index++];
+        // Capture our own position before anyone else advances the shared
+        // cursor. Reading `index` again afterwards is a race: with several
+        // workers running, the batch asked for would not necessarily contain our
+        // own part number, and then this part had no URL and the whole upload
+        // failed near the end.
+        var pos = index++;
+        var n = todo[pos];
+
         if (!urlCache[n]) {
-          var got = await ensureUrls(todo.slice(index - 1, index - 1 + 8));
+          var got = await ensureUrls(todo.slice(pos, pos + 8));
           if (!got || !urlCache[n]) {
             failed = "Could not get an upload URL.";
             return;
           }
         }
+
         var from = (n - 1) * partSize;
         var to = Math.min(from + partSize, file.size);
         var res = await putPart(urlCache[n], file.slice(from, to), function (bytes) {
           sentPerPart[n] = bytes;
           report();
         });
+
+        if (!res.ok) {
+          // One retry with a fresh URL. A signed URL is only valid for a while,
+          // and on a slow line a part that starts late can find its URL already
+          // expired. Failing the whole upload for that would be a shame when the
+          // fix is one request.
+          delete urlCache[n];
+          sentPerPart[n] = 0;
+          report();
+          var again = await ensureUrls([n]);
+          if (again && urlCache[n]) {
+            res = await putPart(urlCache[n], file.slice(from, to), function (bytes) {
+              sentPerPart[n] = bytes;
+              report();
+            });
+          }
+        }
+
         if (!res.ok) {
           failed = res.error;
           return;
