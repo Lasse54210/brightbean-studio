@@ -228,15 +228,40 @@ def multipart_finish(request, workspace_id, pending_id):
     if folder_id:
         folder = get_object_or_404(MediaFolder, pk=folder_id, workspace=workspace)
 
+    asset, fout = complete_and_register(
+        request,
+        workspace,
+        pending,
+        folder=folder,
+        alt_text=str(body.get("alt_text") or ""),
+        title=str(body.get("title") or ""),
+        tags=body.get("tags") or None,
+    )
+    if fout is not None:
+        return fout
+    return JsonResponse({"asset_id": str(asset.id), "filename": asset.filename})
+
+
+def complete_and_register(request, workspace, pending, *, folder=None, alt_text="", title="", tags=None):
+    """Assemble the parts, validate the stored bytes and create the asset.
+
+    Split out of the view because two callers need exactly this: the media
+    library and the composer, which differ only in what they return afterwards.
+    Duplicating it would give two places where the validation could drift, and
+    this is the validation chokepoint.
+
+    Returns ``(asset, None)`` on success, or ``(None, JsonResponse)`` with the
+    reason.
+    """
     upload_id = multipart.find_upload_id(pending.storage_key)
     if not upload_id:
-        return JsonResponse({"error": "This upload is no longer open."}, status=409)
+        return None, JsonResponse({"error": "This upload is no longer open."}, status=409)
 
     parts = multipart.list_parts(pending.storage_key, upload_id)
     expected = multipart.plan_part_count(int(pending.max_bytes))
     if len(parts) != expected:
         missing = sorted(set(range(1, expected + 1)) - {p["part_number"] for p in parts})
-        return JsonResponse(
+        return None, JsonResponse(
             {"error": f"Not all parts arrived; missing {missing[:20]}."}, status=409
         )
 
@@ -247,16 +272,16 @@ def multipart_finish(request, workspace_id, pending_id):
     try:
         inspected = inspect_uploaded_object(pending)
     except FileNotFoundError:
-        return JsonResponse({"error": "The uploaded object could not be read."}, status=502)
+        return None, JsonResponse({"error": "The uploaded object could not be read."}, status=502)
     except StorageQuotaExceededError as exc:
         delete_object(pending.storage_key)
-        return JsonResponse(
+        return None, JsonResponse(
             {"error": f"Storage quota exceeded: used={exc.used} limit={exc.limit} attempted={exc.attempted}"},
             status=413,
         )
     except ValidationError as exc:
         delete_object(pending.storage_key)
-        return JsonResponse(
+        return None, JsonResponse(
             {"error": "; ".join(getattr(exc, "messages", [str(exc)]))}, status=415
         )
 
@@ -265,7 +290,7 @@ def multipart_finish(request, workspace_id, pending_id):
     # each individual part on a direct upload.
     if int(inspected["size"]) != int(pending.max_bytes):
         delete_object(pending.storage_key)
-        return JsonResponse(
+        return None, JsonResponse(
             {
                 "error": (
                     f"Size mismatch: declared {pending.max_bytes}, stored {inspected['size']}."
@@ -286,9 +311,9 @@ def multipart_finish(request, workspace_id, pending_id):
                 inspected=inspected,
                 uploaded_by=request.user,
                 folder=folder,
-                alt_text=str(body.get("alt_text") or ""),
-                title=str(body.get("title") or ""),
-                tags=body.get("tags") or None,
+                alt_text=alt_text,
+                title=title,
+                tags=tags,
             )
             locked.finalized_at = timezone.now()
             locked.media_asset = asset
@@ -297,4 +322,4 @@ def multipart_finish(request, workspace_id, pending_id):
     assert asset is not None
     if asset.processing_status == MediaAsset.ProcessingStatus.PENDING:
         process_media_asset(str(asset.id))
-    return JsonResponse({"asset_id": str(asset.id), "filename": asset.filename})
+    return asset, None
