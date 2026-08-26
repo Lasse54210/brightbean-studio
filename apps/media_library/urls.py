@@ -1,12 +1,31 @@
 from django.urls import path
 
-from . import views
+from . import multipart_views, views
 
 app_name = "media_library"
 
 urlpatterns = [
     path("", views.library_index, name="index"),
     path("upload/", views.upload, name="upload"),
+    # Chunked upload, for files above the proxy's per-request body cap. Placed
+    # here rather than appended at the end so it does not sit where upstream adds
+    # its own routes. See apps/media_library/multipart.py.
+    path("upload/chunked/", multipart_views.multipart_start, name="multipart_start"),
+    path(
+        "upload/chunked/<uuid:pending_id>/urls/",
+        multipart_views.multipart_urls,
+        name="multipart_urls",
+    ),
+    path(
+        "upload/chunked/<uuid:pending_id>/status/",
+        multipart_views.multipart_status,
+        name="multipart_status",
+    ),
+    path(
+        "upload/chunked/<uuid:pending_id>/finish/",
+        multipart_views.multipart_finish,
+        name="multipart_finish",
+    ),
     path("search/", views.search, name="search"),
     # Folders
     path("folders/create/", views.folder_create, name="folder_create"),
