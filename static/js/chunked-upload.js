@@ -245,6 +245,13 @@
   // Same approach as below: wrap the global factory and replace one method, so
   // the template keeps its own markup and progress handling.
   var originalComposer = window.composerApp;
+  // One line at load, so "is this file even active" is answered at a glance
+  // instead of by another round of guessing.
+  console.info(
+    "[chunked-upload] actief. composer=" + (typeof originalComposer === "function") +
+      ", mediabibliotheek=" + (typeof window.mediaLibrary === "function") +
+      ", drempel=" + CHUNKED_FROM_BYTES,
+  );
   if (typeof originalComposer === "function") {
     window.composerApp = function () {
       var component = originalComposer.apply(this, arguments);
@@ -332,6 +339,13 @@
             console.error("[chunked-upload] " + file.name + ": " + reden);
             if (self._showUploadError) self._showUploadError(thumb, file);
             if (thumb) thumb.setAttribute("title", reden);
+            // Also on screen. The composer already renders formError, and a red
+            // tile without a reason is what made this take several rounds.
+            try {
+              self.formError = "Upload " + file.name + ": " + reden;
+            } catch (e) {
+              /* not every component has formError */
+            }
           })
           .finally(function () {
             self.isUploading = false;
