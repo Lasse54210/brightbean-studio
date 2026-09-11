@@ -1123,6 +1123,11 @@
                     </div>
                 </template>
 
+                <!-- Instagram placement settings (Blue Monkey Media fork) -->
+                <template x-for="accId in selectedAccounts" :key="'ig-settings-' + accId">
+                    {% include "composer/partials/_instagram_settings.html" %}
+                </template>
+
                 <!-- Override toggle buttons -->
                 <div class="flex flex-wrap gap-1.5" x-show="selectedAccounts.length > 0">
                     <template x-for="accId in selectedAccounts" :key="'toggle-' + accId">
@@ -2046,6 +2051,12 @@ function composerApp() {
         // Frame picker (YouTube thumbnail upload / TikTok cover timestamp)
         hasVideoAttached: false,
         hasSingleVideoAttached: false,
+        // BMM: the attached media as 'video'/'image', in order. The Instagram
+        // placement panel needs the whole list and not just "is there a video":
+        // a carousel wants two files and a feed image wants the first one not to
+        // be a video. mediaItems above is the initial render only and never
+        // refreshes, so it cannot answer this.
+        mediaKinds: [],
         showFramePicker: false,
         framePickerAccId: null,
         framePickerMode: 'upload',
@@ -2215,6 +2226,8 @@ function composerApp() {
                 const videoCount = thumbs.filter(thumb => thumb.querySelector('video')).length;
                 this.hasVideoAttached = videoCount > 0;
                 this.hasSingleVideoAttached = thumbs.length === 1 && videoCount === 1;
+                // BMM: same pass feeds the Instagram placement panel.
+                this.mediaKinds = thumbs.map(thumb => thumb.querySelector('video') ? 'video' : 'image');
             };
             this.$nextTick(syncVideoAttached);
             document.body.addEventListener('previewUpdate', syncVideoAttached);
@@ -2997,4 +3010,9 @@ function composerApp() {
    replaces only uploadFile, so this template needs no other change. See
    apps/media_library/multipart.py. #}
 <script src="{% static 'js/chunked-upload.js' %}" nonce="{{ request.csp_nonce }}"></script>
+{# Instagram shape and duration warnings. Registers the `bmmMedia` Alpine store,
+   so it has to run before Alpine boots. That holds because base.html loads
+   Alpine with `defer` while this block is parsed first, which is what makes
+   `alpine:init` catchable here. See static/js/instagram-specs.js. #}
+<script src="{% static 'js/instagram-specs.js' %}" nonce="{{ request.csp_nonce }}"></script>
 {% endblock %}

@@ -16,8 +16,14 @@ set -euo pipefail
 # toevoegen staat in nieuwe bestanden, en die kunnen niet conflicteren. Verandert
 # deze lijst, werk hem hier bij: dit script is dan de enige plek die het weet.
 RAAKVLAKKEN=(
+  # gestukte upload
   "apps/media_library/urls.py"
   "templates/media_library/library_index.html"
+  # instagram-plaatsingen
+  "apps/composer/views.py"
+  "templates/composer/compose.html"
+  "providers/instagram.py"
+  "providers/instagram_login.py"
 )
 
 # Bestanden waar onze code in leeft. Niet conflictgevoelig, maar wel de plekken
@@ -27,6 +33,23 @@ LEUNT_OP=(
   "apps/media_library/storage.py"
   "apps/media_library/services.py"
   "apps/media_library/models.py"
+  # De plaatsingskeuze werkt alleen doordat _resolve_post_type de hint uit
+  # platform_extra leest en doordat de engine platform_extra doorgeeft als
+  # content.extra. Herschrijft upstream dat, dan staat onze keuze er nog wel
+  # maar doet hij niets, en dat merk je niet aan een conflict.
+  "apps/publisher/engine.py"
+  # De coverkiezer hergebruikt de frame-picker van TikTok, inclusief de
+  # Alpine-sleutel video_cover_timestamp_ms.
+  "templates/composer/partials/choose_from_video_card.html"
+  # De waarschuwingen meten de aangehangen media uit de DOM: elke thumbnail is
+  # een .media-thumb in #media-list met daarin een <video> of een <img>.
+  # Verandert die opbouw, dan meet static/js/instagram-specs.js stilletjes niets
+  # meer en verdwijnen de waarschuwingen zonder foutmelding.
+  "templates/composer/partials/media_list.html"
+  "templates/composer/partials/media_list_pending.html"
+  # Datzelfde script registreert een Alpine-store en moet dus vóór Alpine
+  # draaien. Dat klopt alleen zolang base.html Alpine met `defer` laadt.
+  "templates/base.html"
 )
 
 REBASE=0
@@ -130,7 +153,10 @@ fi
 
 echo
 echo "Rebase gelukt. Nu nog, en dit is geen formaliteit:"
-echo "  1. tests: docker compose run --rm app pytest apps/media_library"
+echo "  1. tests: docker compose run --rm app pytest apps/media_library \\"
+echo "              apps/composer/tests/test_instagram_extras.py \\"
+echo "              apps/composer/tests/test_instagram_specs.py \\"
+echo "              tests/providers/test_instagram_placement.py"
 echo "  2. tag:   git tag -a bmm-\$(date +%Y.%m.%d) -m \"upstream ${NIEUW}\""
 echo "  3. push:  git push --force-with-lease origin ${TAK} && git push origin --tags"
 echo

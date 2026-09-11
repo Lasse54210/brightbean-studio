@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 
 from .base import SocialProvider
 from .exceptions import APIError, OAuthError, ProviderError, PublishError
+from .instagram_placement import apply_placement
 from .meta_accounts import fetch_me_accounts, page_can_publish
 from .meta_comments import (
     fetch_instagram_comments,
@@ -342,6 +343,8 @@ class InstagramProvider(SocialProvider):
         else:
             payload["image_url"] = url
 
+        apply_placement(payload, content)
+
         # Step 1: create container
         container_id = self._create_container(access_token, ig_user_id, payload)
 
@@ -376,6 +379,8 @@ class InstagramProvider(SocialProvider):
         }
         if content.text:
             carousel_payload["caption"] = content.text
+
+        apply_placement(carousel_payload, content)
 
         carousel_id = self._create_container(access_token, ig_user_id, carousel_payload)
         self._wait_for_container(access_token, carousel_id)
