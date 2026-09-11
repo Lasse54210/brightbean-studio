@@ -1,0 +1,224 @@
+{% comment %}
+Instagram placement panel (Blue Monkey Media fork).
+
+Lets you pick Reel / Story / Carousel / Feed image per Instagram account,
+plus share_to_feed and a cover frame for a Reel. Without this the placement
+came only from the automatic derivation in the publisher, which made a Story
+unreachable from the composer.
+
+New file: the fork keeps its own markup out of compose.html, which includes
+this once inside the `x-for accId in selectedAccounts` loop.
+
+From the enclosing scope: accId, charLimits, platformExtras, selectedAccounts,
+mediaKinds, hasVideoAttached, tiktokCoverPreview, openFramePicker,
+clearTiktokCover, formatTimecode, platformIconSvg. From outside it, the
+`bmmMedia` Alpine store and `window.bmmInstagramSpecs`, both set up by
+static/js/instagram-specs.js -- the panel degrades to increment 1's behaviour
+if that script is missing rather than throwing.
+
+Two kinds of message come out of this panel and the difference is the point. A
+**stop** greys the placement out and the server refuses the save too: Instagram
+would reject the container, asynchronously, minutes later. A **warning** is
+amber and blocks nothing: it publishes, cropped or trimmed, and you are told
+which before you schedule instead of finding out in the grid.
+
+The cover reuses the TikTok frame picker as-is, including its Alpine keys
+(`video_cover_timestamp_ms`, `tiktokCoverPreview`). An account is either TikTok
+or Instagram, so the keys cannot collide, and reusing them keeps the picker's
+JS untouched. The form field below is what translates it: `ig_cover_timestamp_ms`
+becomes `thumb_offset` in apps/composer/instagram_extras.py. That translation
+has to run the other way too: a saved post comes back with `thumb_offset` and
+without `video_cover_timestamp_ms`, and a panel that only reads the latter would
+show no cover and send an empty field, which drops the cover on the next save.
+The x-init below is that reverse step.
+
+"Automatic" is a real option and not just the absence of one. It sends `auto`,
+which the server stores as "no post_type", so the publisher derives the
+placement as it always did. An empty value would not do: empty means "the
+panel said nothing, keep what is stored".
+{% endcomment %}
+<div x-show="charLimits[accId]?.platform === 'instagram' || charLimits[accId]?.platform === 'instagram_login'"
+     x-init="if (platformExtras[accId] && platformExtras[accId].thumb_offset != null && platformExtras[accId].video_cover_timestamp_ms == null) {
+                 platformExtras[accId].video_cover_timestamp_ms = platformExtras[accId].thumb_offset;
+             }"
+     x-data="{
+         igPlacements: [
+             { value: 'auto',     label: 'Automatic' },
+             { value: 'reel',     label: 'Reel' },
+             { value: 'story',    label: 'Story' },
+             { value: 'carousel', label: 'Carousel' },
+             { value: 'image',    label: 'Feed image' },
+         ],
+         get igPlacement() {
+             return this.platformExtras[this.accId]?.post_type || '';
+         },
+         /* What the row shows as pressed and what the form sends: the stored
+            placement, or 'auto' when there is none. */
+         get igChoice() {
+             return this.igPlacement || 'auto';
+         },
+         set igPlacement(value) {
+             if (! this.platformExtras[this.accId]) this.platformExtras[this.accId] = {};
+             if (value === 'auto') {
+                 delete this.platformExtras[this.accId].post_type;
+             } else {
+                 this.platformExtras[this.accId].post_type = value;
+             }
+             if (value !== 'reel') {
+                 delete this.platformExtras[this.accId].share_to_feed;
+                 this.clearTiktokCover(this.accId);
+             }
+         },
+         /* Mirrors placement_media_error() in apps/composer/instagram_extras.py.
+            Same rules, same wording: the server rejects the save, this greys the
+            option out first so you find out before you schedule. */
+         igReason(placement) {
+             if (placement === 'auto') return '';
+             const kinds = this.mediaKinds || [];
+             if (! kinds.length) return 'Attach media before choosing an Instagram placement.';
+             if (placement === 'reel' && kinds[0] !== 'video') return 'A Reel needs a video. Attach one or pick another placement.';
+             if (placement === 'image' && kinds[0] !== 'image') return 'A feed image needs an image. Instagram publishes a lone video as a Reel.';
+             if (placement === 'carousel' && kinds.length < 2) return 'A carousel needs at least two files.';
+             /* 10 is CAROUSEL_MAX_ITEMS in apps/composer/instagram_specs.py. */
+             if (placement === 'carousel' && kinds.length > 10) return 'A carousel holds 10 files at most. Remove ' + (kinds.length - 10) + '.';
+             return '';
+         },
+         /* Shape and duration, from static/js/instagram-specs.js. The store it
+            reads holds what the browser measured off the files themselves, so
+            this is right the moment a video is attached -- the server's own
+            copy of those numbers lands later, when the ffprobe task runs. */
+         igFindings(placement) {
+             const specs = window.bmmInstagramSpecs;
+             if (! specs) return [];
+             const items = (this.$store && this.$store.bmmMedia && this.$store.bmmMedia.items) || [];
+             return specs.checkPost(items, placement);
+         },
+         igBlocked(placement) {
+             const blocking = this.igFindings(placement).find(f => f.level === 'block');
+             return blocking ? blocking.message : '';
+         },
+         /* Everything that makes a placement unpickable, in one string, because
+            the button needs one answer and so does its tooltip. */
+         igUnavailable(placement) {
+             return this.igReason(placement) || this.igBlocked(placement);
+         },
+         /* Cropping and the like: published, but not the way you meant. Never a
+            stop -- the save goes through and the server agrees. */
+         get igWarnings() {
+             if (! this.igPlacement) return [];
+             const warnings = this.igFindings(this.igPlacement).filter(f => f.level === 'warn').map(f => f.message);
+             /* Only a carousel publishes more than one file. The provider takes
+                media_urls[0] for everything else and drops the rest without a
+                word, so say it here, where it can still be changed. */
+             const extra = (this.mediaKinds || []).length - 1;
+             if (this.igPlacement !== 'carousel' && extra > 0) {
+                 const label = { reel: 'a Reel', story: 'a Story', image: 'a feed image' }[this.igPlacement] || 'this placement';
+                 warnings.push('Only the first file is published as ' + label + '. The other ' +
+                     (extra === 1 ? 'file is' : extra + ' files are') + ' left out; pick Carousel to publish them all.');
+             }
+             return warnings;
+         },
+     }"
+     class="border border-stone-200 rounded-xl bg-white p-4 space-y-3">
+    <div class="flex items-center gap-2">
+        <span class="platform-icon w-5 h-5 rounded-[5px] flex items-center justify-center"
+              :class="'pi-' + (charLimits[accId]?.platform || '')"
+              x-html="platformIconSvg(charLimits[accId]?.platform || '')"></span>
+        <span class="text-xs font-semibold text-stone-600" x-text="charLimits[accId]?.name + ' - Placement'"></span>
+    </div>
+
+    <div>
+        <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">
+            Publish as
+        </label>
+        <div class="flex flex-wrap gap-1.5">
+            <template x-for="p in igPlacements" :key="'ig-' + accId + '-' + p.value">
+                <div class="relative group">
+                    <button type="button"
+                            @click="igPlacement = p.value"
+                            :disabled="!!igUnavailable(p.value)"
+                            :aria-pressed="igChoice === p.value"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-all"
+                            :class="igUnavailable(p.value)
+                                ? 'border-stone-200 bg-stone-50 text-stone-300 cursor-not-allowed'
+                                : (igChoice === p.value
+                                    ? 'border-orange-300 bg-orange-50 text-orange-700 cursor-pointer'
+                                    : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300 cursor-pointer')"
+                            x-text="p.label"></button>
+                    <!-- Why it is greyed out, on hover for the mouse; the note below
+                         the row carries the same reason for keyboard and screen readers. -->
+                    <span x-show="!!igUnavailable(p.value)"
+                          class="pointer-events-none absolute left-0 -top-7 opacity-0 group-hover:opacity-100 transition-opacity bg-stone-800 text-white text-[11px] rounded px-2 py-1 whitespace-nowrap z-50 shadow"
+                          x-text="igUnavailable(p.value)"></span>
+                </div>
+            </template>
+        </div>
+        <!-- 'auto' when nothing is chosen: the publisher then derives the placement
+             the way it always did, which is the right default for a first post. -->
+        <input type="hidden" :name="'ig_placement_' + accId" :value="igChoice">
+        <p x-show="!igPlacement" class="text-[11px] text-stone-400 mt-1.5">
+            Automatic: a single video becomes a Reel, several files a carousel, an image a feed post.
+        </p>
+        <p x-show="igPlacement && igUnavailable(igPlacement)" class="text-[11px] text-red-600 mt-1.5"
+           x-text="igUnavailable(igPlacement)"></p>
+        <!-- Warnings, not stops. Instagram publishes this; it just does something
+             to it first, and that is worth knowing before rather than after. -->
+        <template x-for="warning in igWarnings" :key="warning">
+            <p class="text-[11px] text-amber-600 mt-1.5 flex gap-1.5">
+                <svg class="w-3.5 h-3.5 flex-shrink-0 mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                <span x-text="warning"></span>
+            </p>
+        </template>
+    </div>
+
+    <!-- share_to_feed is a Reels-only parameter; on anything else Instagram
+         rejects the container, so the toggle only exists here. -->
+    <template x-if="igPlacement === 'reel'">
+        <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" :name="'ig_share_to_feed_' + accId" value="true"
+                       :checked="platformExtras[accId]?.share_to_feed !== false"
+                       @change="platformExtras[accId].share_to_feed = $event.target.checked"
+                       class="bb-checkbox w-4 h-4 rounded border-stone-300">
+                <span class="text-sm text-stone-700">Also show in the feed grid</span>
+            </label>
+            <p class="text-[11px] text-stone-400 mt-1">Off keeps the Reel in the Reels tab only.</p>
+        </div>
+    </template>
+
+    <!-- Cover: Instagram takes a frame offset in milliseconds (thumb_offset),
+         not an uploaded image, so this is the same picker TikTok uses. -->
+    <template x-if="igPlacement === 'reel'">
+        <div>
+            <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">Cover</label>
+            <input type="hidden"
+                   :name="'ig_cover_timestamp_ms_' + accId"
+                   :value="platformExtras[accId]?.video_cover_timestamp_ms ?? ''">
+            <div class="flex items-stretch gap-3">
+                {% include "composer/partials/choose_from_video_card.html" with mode="timestamp" %}
+                <template x-if="tiktokCoverPreview[accId]">
+                    <div class="relative flex-shrink-0">
+                        <img :src="tiktokCoverPreview[accId]"
+                             class="h-[104px] w-auto max-w-[480px] object-cover rounded-lg border border-stone-200">
+                        <button type="button" @click="clearTiktokCover(accId)"
+                                title="Reset to default cover"
+                                class="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/55 hover:bg-red-500 text-white flex items-center justify-center transition-colors cursor-pointer">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                </template>
+                <template x-if="!tiktokCoverPreview[accId] && (platformExtras[accId]?.video_cover_timestamp_ms ?? null) !== null">
+                    <div class="relative flex-1 max-w-[480px] rounded-lg border border-stone-200 bg-stone-50 flex items-center justify-center min-h-[104px]">
+                        <span class="text-xs text-stone-500 font-medium tabular-nums"
+                              x-text="'Cover at ' + formatTimecode((platformExtras[accId]?.video_cover_timestamp_ms || 0) / 1000)"></span>
+                        <button type="button" @click="clearTiktokCover(accId)"
+                                title="Reset to default cover"
+                                class="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/55 hover:bg-red-500 text-white flex items-center justify-center transition-colors cursor-pointer">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+</div>

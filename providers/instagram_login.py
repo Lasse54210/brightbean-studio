@@ -20,6 +20,7 @@ from urllib.parse import urlencode
 
 from .base import SocialProvider
 from .exceptions import APIError, OAuthError, PublishError
+from .instagram_placement import apply_placement, is_video_url
 from .meta_comments import (
     fetch_instagram_comments,
     find_own_instagram_comment,
@@ -315,13 +316,15 @@ class InstagramLoginProvider(SocialProvider):
         elif content.post_type == PostType.STORY:
             url = content.media_urls[0]
             payload["media_type"] = "STORIES"
-            if url.lower().endswith((".mp4", ".mov")):
+            if is_video_url(url):
                 payload["video_url"] = url
             else:
                 payload["image_url"] = url
         else:
             # Default IMAGE
             payload["image_url"] = content.media_urls[0]
+
+        apply_placement(payload, content)
 
         container_id = self._create_container(access_token, payload)
         self._wait_for_container(access_token, container_id)
@@ -331,7 +334,7 @@ class InstagramLoginProvider(SocialProvider):
         child_ids: list[str] = []
 
         for url in content.media_urls:
-            is_video = url.lower().endswith((".mp4", ".mov"))
+            is_video = is_video_url(url)
             child_payload: dict = {"is_carousel_item": True}
             if is_video:
                 child_payload["media_type"] = "VIDEO"
@@ -349,6 +352,8 @@ class InstagramLoginProvider(SocialProvider):
         }
         if content.text:
             carousel_payload["caption"] = content.text
+
+        apply_placement(carousel_payload, content)
 
         carousel_id = self._create_container(access_token, carousel_payload)
         self._wait_for_container(access_token, carousel_id)

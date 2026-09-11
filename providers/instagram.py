@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 
 from .base import SocialProvider
 from .exceptions import APIError, OAuthError, PublishError
+from .instagram_placement import apply_placement, is_video_url
 from .meta_comments import (
     fetch_instagram_comments,
     find_own_instagram_comment,
@@ -319,7 +320,7 @@ class InstagramProvider(SocialProvider):
             payload["media_type"] = "REELS"
             payload["video_url"] = content.media_urls[0]
         elif content.post_type == PostType.STORY:
-            if content.media_urls and content.media_urls[0].endswith((".mp4", ".mov")):
+            if content.media_urls and is_video_url(content.media_urls[0]):
                 payload["media_type"] = "STORIES"
                 payload["video_url"] = content.media_urls[0]
             else:
@@ -328,6 +329,8 @@ class InstagramProvider(SocialProvider):
         else:
             # Default IMAGE
             payload["image_url"] = content.media_urls[0]
+
+        apply_placement(payload, content)
 
         # Step 1: create container
         container_id = self._create_container(access_token, ig_user_id, payload)
@@ -343,7 +346,7 @@ class InstagramProvider(SocialProvider):
         child_ids: list[str] = []
 
         for url in content.media_urls:
-            is_video = url.lower().endswith((".mp4", ".mov"))
+            is_video = is_video_url(url)
             child_payload: dict = {
                 "is_carousel_item": True,
             }
@@ -364,6 +367,8 @@ class InstagramProvider(SocialProvider):
         }
         if content.text:
             carousel_payload["caption"] = content.text
+
+        apply_placement(carousel_payload, content)
 
         carousel_id = self._create_container(access_token, ig_user_id, carousel_payload)
         self._wait_for_container(access_token, carousel_id)

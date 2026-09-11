@@ -35,6 +35,11 @@ from apps.workspaces.models import Workspace
 from providers.tiktok import VALID_PRIVACY_LEVELS as TIKTOK_PRIVACY_LEVELS
 
 from .forms import ContentCategoryForm, PostForm
+from .instagram_extras import (
+    INSTAGRAM_PLATFORMS,
+    build_instagram_extra,
+    instagram_placement_error,
+)
 from .models import (
     ContentCategory,
     Feed,
@@ -220,6 +225,12 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
                 if cover_ms_val >= 0:
                     extra["video_cover_timestamp_ms"] = cover_ms_val
             pp.platform_extra = extra
+
+        elif account.platform in INSTAGRAM_PLATFORMS and f"ig_placement_{acc_id}" in request.POST:
+            # Guarded on the panel being in the form for the same reason as
+            # TikTok above: a save that does not carry it must not wipe the
+            # placement. See apps/composer/instagram_extras.py.
+            pp.platform_extra = build_instagram_extra(request, acc_id, pp.platform_extra)
 
         pp.save()
 
@@ -781,6 +792,16 @@ def save_post(request, workspace_id, post_id=None):
     pinterest_board_error = _validate_pinterest_board_selection(request, post, workspace)
     if pinterest_board_error is not None:
         return pinterest_board_error
+
+    ig_error = instagram_placement_error(
+        request,
+        post,
+        workspace,
+        _parse_selected_account_ids(request.POST.get("selected_accounts", "")),
+        request.session.get(f"pending_media_{workspace.id}", []),
+    )
+    if ig_error is not None:
+        return JsonResponse({"errors": {"instagram_placement": ig_error}}, status=400)
 
     # Handle action — note that Post itself no longer carries an editorial
     # status: every transition below operates on the PlatformPost children,

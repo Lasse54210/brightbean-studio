@@ -1,8 +1,14 @@
 # Blue Monkey Media fork
 
 Dit is een fork van [brightbean-studio](https://github.com/brightbeanxyz/brightbean-studio)
-met één toevoeging: **gestukte uploads**, zodat bestanden boven de 100 MB het wel
-halen. Verder is het upstream.
+met twee toevoegingen (integratietak `bmm/main`, deploy pint op de tags):
+
+1. **Gestukte uploads**, zodat bestanden boven de 100 MB het wel halen.
+2. **Instagram-plaatsingen**: per account kiezen tussen Reel, Story, carrousel en
+   feedafbeelding, in plaats van alleen de automatische afleiding, met een
+   waarschuwing als het bestand niet bij die plaatsing past.
+
+Verder is het upstream.
 
 Alles wat wij toevoegen staat in nieuwe bestanden. Dat is een bewuste keuze en
 geen toeval: het bepaalt wat het kost om deze fork bij te houden.
@@ -83,10 +89,13 @@ bmm/update-upstream.sh            # kijken, niets wijzigen
 bmm/update-upstream.sh --rebase   # echt rebasen
 ```
 
-Het script kijkt of upstream aan onze twee aanrakingsvlakken heeft gezeten. Zo
-niet, dan is de rebase triviaal. Het waarschuwt ook als upstream aan de helpers
-zat waar wij op leunen (`storage.py`, `services.py`, `models.py`), want daar kan
-iets stilzwijgend van betekenis veranderen zonder dat git een conflict meldt.
+Het script kijkt of upstream aan onze aanrakingsvlakken heeft gezeten. Zo niet,
+dan is de rebase triviaal. Het waarschuwt ook als upstream aan de plekken zat
+waar wij op leunen zonder ze te wijzigen (`storage.py`, `services.py`,
+`models.py`, `apps/publisher/engine.py`, de frame-picker), want daar kan iets
+stilzwijgend van betekenis veranderen zonder dat git een conflict meldt. De
+plaatsingskeuze is daar het duidelijkste geval: herschrijft upstream
+`_resolve_post_type`, dan staat ons paneel er nog steeds maar doet het niets.
 
 En het kijkt of upstream zelf iets met multipart heeft gedaan. Als dat zo is,
 gooi onze patch dan weg. Een patch die je niet meer draagt is altijd beter dan
@@ -99,6 +108,145 @@ bovenop upstream, en blijft de voetafdruk hierboven te controleren met
 **Een conflict is een stopteken.** Los het op of breek af (`git rebase --abort`);
 forceer nooit. Een verkeerd opgeloste rebase in een uploadpad kost meer dan een
 week wachten.
+
+## Instagram-plaatsingen
+
+De providers konden Reels, Stories en carrousels al publiceren, maar je kon de
+keuze nergens maken. De plaatsing kwam uitsluitend uit
+`platform_extra["post_type"]`, en de composer vulde `platform_extra` alleen voor
+YouTube, Pinterest en TikTok. Dus gold altijd de automatische afleiding: één
+video werd een Reel, meerdere bestanden een carrousel, een afbeelding een
+feedpost. **Een Story was onbereikbaar** behalve door de kolom met de hand te
+zetten.
+
+De composer schrijft die hint nu wel, en daarmee werkt de rest vanzelf: de
+publisher las hem altijd al. Daar hangen twee parameters aan die alleen op een
+Reel mogen (`share_to_feed` en `thumb_offset`), en die worden per plaatsing
+weggelaten in plaats van meegestuurd. Dat is geen netheid maar noodzaak:
+Instagram negeert een parameter die niet bij het mediatype past niet, het keurt
+de container af, en die fout komt minuten later terug als "container failed"
+zonder verdere tekst.
+
+De plaatsing wordt bij het opslaan gecontroleerd tegen de aangehangen media (een
+Reel wil een video, een carrousel twee bestanden), met dezelfde regels en
+dezelfde tekst aan beide kanten. Dezelfde reden: fout gekozen komt anders pas
+bij het publiceren boven water.
+
+**Automatisch** is een echte knop en niet alleen het ontbreken van een keuze. Hij
+stuurt `auto`, en dat slaat de server op als "geen `post_type`", zodat de
+publisher weer zelf afleidt. Een lege waarde kon dat niet zijn: leeg betekent al
+"het paneel zei niets, laat staan wat er stond", en die betekenis is nodig om te
+voorkomen dat een half gerenderd formulier een Story stilletjes terugzet.
+
+Buiten een carrousel publiceert de provider alleen `media_urls[0]` en laat de
+rest zonder bericht weg. Het paneel zegt dat dus zelf: "Only the first file is
+published as a Reel. The other file is left out; pick Carousel to publish them
+all."
+
+Twee dingen die in de eerste review naar boven kwamen en waar je op moet letten
+als je hier iets wijzigt:
+
+- **De cover moet twee kanten op vertaald worden.** Het formulier stuurt
+  `ig_cover_timestamp_ms`, de server bewaart `thumb_offset`. Een opgeslagen post
+  komt dus terug met `thumb_offset` en zonder `video_cover_timestamp_ms`, en een
+  paneel dat alleen het laatste leest toont geen cover en stuurt een leeg veld,
+  waarmee de cover bij de volgende save verdwijnt. De `x-init` van het paneel
+  is die terugvertaling.
+- **Video-herkenning in de provider staat op het URL-pad, niet op de URL.**
+  Upstream deed `url.endswith(".mp4")` op de hele string. Dat werkt alleen zolang
+  media-URL's ongetekend zijn (onze stand: `S3_CUSTOM_DOMAIN` gezet). Een
+  presigned URL eindigt op `?X-Amz-Signature=...` en dan leest elke video als
+  afbeelding: een Story-video gaat als `image_url` de deur uit en de container
+  faalt minuten later. `is_video_url` in `providers/instagram_placement.py`
+  kijkt naar `urlsplit(url).path`, zodat beide URL-vormen hetzelfde doen. Dit is
+  een upstream-fout die pas in ons pad kwam toen Story bereikbaar werd, en hoort
+  bij de fixes die naar upstream kunnen.
+
+### Formaat en duur
+
+Bij de plaatsing hoort een bestand dat erbij past, en dat is precies wat
+Instagram je niet op tijd vertelt. Een video van 16:9 als Reel wordt afgekapt
+naar 9:16; een Story van 70 seconden wordt niet afgekapt maar geweigerd, en die
+weigering komt asynchroon terug als "container failed", minuten nadat je hebt
+ingepland.
+
+Dus staan alle getallen op één plek (`apps/composer/instagram_specs.py`, gelezen
+uit Meta's IG User Media-referentie op 2026-09-11) en komt er in het paneel te
+staan wat er met dit bestand gaat gebeuren. Twee soorten melding, en het verschil
+is het hele punt:
+
+- Een **stop** maakt de plaatsing onkiesbaar en laat de server de opslag
+  weigeren. Alleen voor wat Instagram echt weigert: de verplichte
+  beeldverhouding (0,01:1 tot 10:1 voor een Reel, 0,1:1 tot 10:1 voor een Story)
+  en de duur (3 seconden tot 15 minuten voor een Reel, 3 tot 60 seconden voor
+  een Story).
+- Een **waarschuwing** houdt niets tegen. "Deze video is 16:9. Een Reel is 9:16,
+  dus Instagram snijdt het middelste stuk eruit." Bijsnijden is een keuze die je
+  mag maken; een composer die weigert een 16:9-Reel in te plannen zou erger zijn
+  dan het probleem.
+
+De feedafbeelding is bewust de uitzondering: de referentie schrijft 4:5 tot
+1,91:1 net zo hard voor als de rest, maar in de praktijk snijdt Instagram een
+feedafbeelding bij in plaats van hem te weigeren. Dat is dus een waarschuwing.
+Een onterechte stop kost een release, een onterechte waarschuwing een zin.
+
+**De browser meet zelf.** Niet omdat dat mooier is, maar omdat
+`MediaAsset.width/height/duration` door een achtergrondtaak (ffprobe) worden
+gevuld en dus 0 zijn zolang die taak nog niet heeft gedraaid. Een `<video>` in de
+lijst kent zijn eigen afmetingen meteen. De serverkant kijkt naar dezelfde
+getallen uit de database, en een 0 betekent daar "nog niet gemeten" en nooit
+"nul pixels breed" -- een blokkade op ontbrekende metadata zou elke verse upload
+tegenhouden.
+
+### Voetafdruk
+
+| Bestand | Wat |
+|---|---|
+| `apps/composer/instagram_extras.py` | **nieuw**, de formulierkant en de validatieregels |
+| `apps/composer/instagram_specs.py` | **nieuw**, alle getallen van Meta plus de controle |
+| `templates/composer/partials/_instagram_settings.html` | **nieuw**, het paneel |
+| `static/js/instagram-specs.js` | **nieuw**, dezelfde controle plus het meten in de browser |
+| `providers/instagram_placement.py` | **nieuw**, de allowlist per plaatsing |
+| `apps/composer/tests/test_instagram_extras.py` | **nieuw**, tests |
+| `apps/composer/tests/test_instagram_specs.py` | **nieuw**, tests |
+| `tests/providers/test_instagram_placement.py` | **nieuw**, tests |
+| `apps/composer/views.py` | een import, een `elif` in `_sync_platform_posts`, een validatiepoort |
+| `templates/composer/compose.html` | 1 include, 1 script-regel, plus `mediaKinds` in de Alpine-state |
+| `providers/instagram.py` | 1 import, 2 aanroepen van `apply_placement`, 2 keer `is_video_url` in plaats van `endswith` |
+| `providers/instagram_login.py` | 1 import, 2 aanroepen van `apply_placement`, 2 keer `is_video_url` in plaats van `endswith` |
+
+Vier bestaande bestanden, rond de 40 regels. **Geen migratie**: `platform_extra`
+bestaat al als kolom, en dat is precies waarom dit zo klein blijft.
+
+Er is geen JavaScript-testopstelling in deze repo en die is er voor dit ene
+bestand ook niet bij gekomen. De getallen staan vast in
+`apps/composer/tests/test_instagram_specs.py`; dat `static/js/instagram-specs.js`
+bij oplevering exact hetzelfde antwoord gaf is eenmalig gecontroleerd door beide
+kanten over dezelfde 35 gevallen te draaien en de uitvoer te vergelijken. Wie een
+getal wijzigt, wijzigt er dus twee. De spiegel is `check()`; `checkPost()` bestaat
+alleen in de browser, want de server heeft genoeg aan de eerste blokkade terwijl
+het paneel elke waarschuwing toont, per bestand genummerd.
+
+Twee dingen die bewust hergebruikt zijn in plaats van nagebouwd:
+
+- **De coverkiezer is die van TikTok**, inclusief de Alpine-sleutels
+  (`video_cover_timestamp_ms`, `tiktokCoverPreview`). Een account is nooit
+  tegelijk TikTok en Instagram, dus de sleutels botsen niet, en zo blijft de
+  JavaScript van de frame-picker ongemoeid. Het formulierveld vertaalt het:
+  `ig_cover_timestamp_ms` wordt `thumb_offset`.
+- **`mediaKinds` hangt aan de bestaande `syncVideoAttached`**, de plek die al
+  bijhield of er een video hangt. `mediaItems` kon dit niet beantwoorden: dat is
+  alleen de eerste render en wordt nooit ververst.
+
+### Wat er niet in zit
+
+`user_tags`, `collaborators`, `location_id`, `audio_name` en `alt_text` staan wel
+in de allowlist maar hebben geen UI. De waarschuwingen kijken naar beeldverhouding
+en duur en niet naar bestandsgrootte, codec of framerate; die staan wel in de
+referentie maar niet in `instagram_specs.py`. Feed-video als eigen plaatsing bestaat niet:
+Instagram publiceert een losse video altijd als Reel. Herkadreren van video's
+staat in het plan (`bmm/instagram-plaatsingen-plan.md`, increment 4) en is niet
+gebouwd.
 
 ## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
 
@@ -134,11 +282,15 @@ tak voorloopt op het origineel. Twee dingen om te weten:
   Er staat dus niets klaar en er is niets misgegaan; GitHub biedt alleen aan onze
   patch naar brightbeanxyz te sturen. Doe dat bewust of niet, maar niet per
   ongeluk.
-- **De standaardtak van de fork is `bmm/gestukte-upload`**, niet `main`. Dat is
+- **De standaardtak van de fork is `bmm/main`**, niet `main`. Dat is
   belangrijker dan het lijkt: stond hij op `main`, dan levert een kale
-  `git clone` van deze fork upstream-code **zonder** onze patch op, en dat is
+  `git clone` van deze fork upstream-code **zonder** onze patches op, en dat is
   precies het soort verrassing dat je op een server ontdekt. Nu krijgt een clone
-  meteen de goede tak.
+  meteen de goede tak. `bmm/main` is de integratietak met alles wat wij
+  toevoegen; de tags staan erop. Tot 2026-09-11 heette die tak
+  `bmm/gestukte-upload`, naar de eerste toevoeging, en die naam klopte niet meer
+  toen er een tweede bij kwam. De featuretakken (`bmm/gestukte-upload`,
+  `bmm/instagram-plaatsingen`) blijven staan als geschiedenis.
 
 `main` blijft bewust een schone spiegel van upstream. Het bijwerkscript rebaset op
 `upstream/main` en heeft die spiegel niet nodig, maar het is handig om te kunnen
