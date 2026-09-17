@@ -16,10 +16,10 @@ Two things stay deliberately honest here:
 
 * **An unlinked message is not "posted outside Brightbean".** A comment can
   lack a ``PlatformPost`` because the post really was published elsewhere, but
-  also because the provider names the post differently than the inbox expects
-  (YouTube says ``video_id``, LinkedIn says ``post_urn``, and neither is what
-  ``resolve_related_posts`` matches on). So an unlinked reference says what it
-  knows -- an id -- and claims nothing about where the post came from.
+  also because it arrived before the lookup understood that provider's name for
+  the post id, or because the publishing side never recorded one. So an
+  unlinked reference says what it knows -- an id -- and claims nothing about
+  where the post came from.
 * **No permalink is invented.** Facebook and Instagram hand us
   ``post_permalink_url`` and we pass it on. For a provider that does not, the
   reference simply has no link rather than a guessed URL that 404s.
@@ -30,10 +30,10 @@ from dataclasses import dataclass
 from django.db.models import Q
 
 # What providers call "the post this message hangs off", in the order we trust
-# them. The first two are the keys ``resolve_related_posts`` matches against
-# ``PlatformPost.platform_post_id``; the last two are YouTube's and LinkedIn's
-# name for the same thing. Those two group correctly but do not link, because
-# nothing resolves them to a PlatformPost yet.
+# them: Facebook's stripped and raw form first, then YouTube's and LinkedIn's
+# name for the same thing. This tuple is the single order, read both by the
+# grouping here and by ``resolve_related_posts`` when it fills ``related_post``,
+# so a provider added to one is never silently missing from the other.
 POST_KEYS = ("stored_post_id", "post_id", "video_id", "post_urn")
 
 # Caption text kept in a chip before it gets an ellipsis. Long enough to

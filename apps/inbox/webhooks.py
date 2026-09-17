@@ -237,7 +237,7 @@ def _instagram_comment_extra(value: dict, *, reply_edge: str) -> dict:
 
     Instagram nests the media under ``value["media"]["id"]`` (flat ``media_id``
     on a mention) where a Page sends a flat ``post_id``. ``_related_post_key``
-    only reads ``stored_post_id``/``post_id``, so without this every Instagram
+    reads neither of those from a nested payload, so without this every Instagram
     comment stores a NULL related_post even though PlatformPost holds that exact
     media id — Instagram ids carry no page prefix to strip, so the two match
     directly and both keys are the same value.

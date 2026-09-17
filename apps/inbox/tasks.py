@@ -17,6 +17,7 @@ from providers.exceptions import ProviderError, TokenExpiredError
 from providers.google_errors import google_error_reasons
 
 from .models import InboxMessage, InboxSLAConfig
+from .post_reference import post_key
 from .sentiment import analyze_sentiment
 
 logger = logging.getLogger(__name__)
@@ -70,12 +71,15 @@ def _is_recent(ts):
 def _related_post_key(extra: dict | None) -> str:
     """The post id a message hangs off, as PlatformPost stores it.
 
-    Providers report the platform's own id (Facebook's is ``PAGEID_POSTID``);
+    Every provider names this differently, so the order lives in
+    ``post_reference.POST_KEYS`` and both the linking here and the grouping in
+    the inbox read it from there. Facebook reports ``PAGEID_POSTID`` and
     ``stored_post_id`` is the stripped form that matches
-    ``PlatformPost.platform_post_id``. Fall back to the raw id for providers
-    that don't strip.
+    ``PlatformPost.platform_post_id``, so that one stays first; LinkedIn calls
+    it ``post_urn`` and YouTube ``video_id``, and both write the same string
+    their publisher stored as ``platform_post_id``.
     """
-    return str((extra or {}).get("stored_post_id") or (extra or {}).get("post_id") or "")
+    return post_key(extra)
 
 
 def resolve_related_posts(account, messages) -> dict[str, Any]:

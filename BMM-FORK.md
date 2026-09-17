@@ -441,6 +441,33 @@ op een gepubliceerde post in de composer of de kalender. Bulkacties resetten de
 lijst naar ongefilterd, ook voor dit filter; dat doet upstream voor elk filter
 en is hier bewust niet rechtgetrokken.
 
+### LinkedIn en YouTube koppelen ook
+
+De eerste ronde liet twee providers half werken: LinkedIn-reacties
+(`post_urn`) en YouTube-reacties (`video_id`) groepeerden wel op post, maar
+kregen geen postkaart, want `_related_post_key` las alleen Facebooks twee
+spellingen. Dat is nu dezelfde volgorde geworden: `_related_post_key` roept
+`post_key` aan, zodat de ene tuple `POST_KEYS` zowel het groeperen als het
+vullen van `related_post` stuurt. Een provider die erbij komt kan dus niet meer
+in het ene wel en in het andere niet zitten.
+
+Het werkt omdat de twee kanten dezelfde string bewaren. LinkedIn publiceert via
+`POST /rest/posts` en legt `x-restli-id` vast als `platform_post_id`; de inbox
+leest `GET /rest/posts` en neemt `id` van dezelfde post. YouTube doet hetzelfde
+met het video-id. Er viel dus niets te vertalen, alleen te kijken.
+
+Voor wat al binnen was is er `manage.py link_inbox_posts`, met `--dry-run` en
+`--platform`. Hij koppelt alleen los: een bericht dat al ergens naar wijst
+blijft staan, en de opzoeking is per account, zodat hetzelfde post-id bij twee
+accounts niet overspringt.
+
+**Wat hiermee niet opgelost is:** de inbox van LinkedIn haalt alleen de posts
+van de ingelogde persoon op. `get_messages(access_token, since)` krijgt geen
+account mee, dus de provider leidt de auteur af uit het profiel achter het
+token (`urn:li:person:...`) terwijl publiceren wel naar een
+`urn:li:organization:...` kan schrijven. Reacties op een bedrijfspagina komen
+daardoor helemaal niet binnen, en dat is een ander gat dan dit.
+
 ## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
 
 De browser PUT de parts **rechtstreeks** naar de opslag met een presigned URL. Die
