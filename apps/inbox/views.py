@@ -34,6 +34,7 @@ from .models import (
     InternalNote,
     SavedReply,
 )
+from .post_reference import filter_by_post, reference_for, reference_for_key
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,9 @@ def inbox_feed(request, workspace_id):
     """Main inbox feed with filtering, pagination, and split-panel layout."""
     workspace = _get_workspace(request, workspace_id)
 
-    qs = InboxMessage.objects.for_workspace(workspace.id).select_related("social_account", "assigned_to")
+    qs = InboxMessage.objects.for_workspace(workspace.id).select_related(
+        "social_account", "assigned_to", "related_post", "related_post__post"
+    )
 
     # View shortcuts
     view = request.GET.get("view", "all")
@@ -138,11 +141,30 @@ def inbox_feed(request, workspace_id):
     if date_to:
         qs = qs.filter(received_at__date__lte=date_to)
 
+    post = request.GET.get("post", "").strip()
+    if post:
+        qs = filter_by_post(qs, post)
+
     q = request.GET.get("q", "").strip()
     if q:
         qs = qs.filter(Q(body__icontains=q) | Q(sender_name__icontains=q) | Q(sender_handle__icontains=q))
 
     messages = qs[:MESSAGES_PER_PAGE]
+
+    # The notice above the filter bar names the post. Any message in the
+    # filtered set describes it, so the label costs no extra query; the bare
+    # fallback is for a filter that still matches nothing in view.
+    #
+    # The count deliberately ignores the other filters. The notice sits outside
+    # the region HTMX swaps, so a count narrowed by status would freeze at
+    # whatever it was when the page loaded and quietly start lying. Counting
+    # everything on the post is both stable and the number you want: how big
+    # is this conversation.
+    post_filter = None
+    post_filter_count = 0
+    if post:
+        post_filter = reference_for(messages[0]) if messages else reference_for_key(post)
+        post_filter_count = filter_by_post(InboxMessage.objects.for_workspace(workspace.id), post).count()
 
     # SLA config for countdown display
     sla_config = InboxSLAConfig.objects.filter(workspace=workspace, is_active=True).first()
@@ -165,6 +187,8 @@ def inbox_feed(request, workspace_id):
         "team_members": team_members,
         "social_accounts": social_accounts,
         "current_view": view,
+        "post_filter": post_filter,
+        "post_filter_count": post_filter_count,
         "active_filters": {
             "platform": platforms,
             "account": accounts,
@@ -175,6 +199,7 @@ def inbox_feed(request, workspace_id):
             "date_from": date_from,
             "date_to": date_to,
             "q": q,
+            "post": post,
         },
     }
 
@@ -477,10 +502,11 @@ def bulk_action(request, workspace_id):
         if membership:
             qs.update(assigned_to=membership.user)
 
-    # Re-fetch and return updated list
-    messages = InboxMessage.objects.for_workspace(workspace.id).select_related("social_account", "assigned_to")[
-        :MESSAGES_PER_PAGE
-    ]
+    # Re-fetch and return updated list. The post the row names comes along in
+    # the same query; without it every row in the list costs two more.
+    messages = InboxMessage.objects.for_workspace(workspace.id).select_related(
+        "social_account", "assigned_to", "related_post", "related_post__post"
+    )[:MESSAGES_PER_PAGE]
 
     context = {"workspace": workspace, "inbox_messages": messages}
     return render(request, "inbox/partials/_message_list.html", context)

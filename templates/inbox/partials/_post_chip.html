@@ -1,0 +1,29 @@
+{% comment %}
+The post a message hangs off, as one line in the message list
+(Blue Monkey Media fork).
+
+New file: _message_row.html includes it once, so the fork's markup stays out
+of the upstream row. Needs `message` and `workspace` from the enclosing scope.
+
+Clicking it filters the feed to that post, which is the shortest route from
+"whose comment is this" to "show me everything under that post". The click is
+stopped so it does not also open the message in the detail panel.
+
+Renders nothing at all for a message with no post: a DM has none, and a
+mention that arrived without one has none either.
+{% endcomment %}
+{% load bmm_inbox %}
+{% with ref=message|post_reference %}
+{% if ref %}
+<a href="{% url 'inbox:feed' workspace_id=workspace.id %}?post={{ ref.key|urlencode }}"
+   @click.stop
+   class="badge-pill max-w-[200px] hover:underline"
+   style="background: var(--surface-2); color: var(--text-secondary);"
+   title="Show every message on this post: {{ ref.label }}">
+    <svg class="w-2.5 h-2.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15l4-4 5 5"/><circle cx="15" cy="8" r="1.5"/>
+    </svg>
+    <span class="truncate">{{ ref.label }}</span>
+</a>
+{% endif %}
+{% endwith %}

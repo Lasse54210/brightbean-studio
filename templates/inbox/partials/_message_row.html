@@ -46,6 +46,8 @@
             <span class="badge-pill badge-status-{{ message.status }}">{{ message.get_status_display }}</span>
             <!-- Sentiment badge -->
             {% include "inbox/partials/_sentiment_badge.html" %}
+            <!-- Which post this hangs off (Blue Monkey Media fork) -->
+            {% include "inbox/partials/_post_chip.html" %}
             <!-- Assignment -->
             {% if message.assigned_to %}
             <span class="badge-pill" style="background: var(--accent-indigo-soft); color: var(--accent-indigo);">

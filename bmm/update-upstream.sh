@@ -24,6 +24,13 @@ RAAKVLAKKEN=(
   "templates/composer/compose.html"
   "providers/instagram.py"
   "providers/instagram_login.py"
+  # reacties per post
+  "apps/inbox/views.py"
+  "templates/inbox/feed.html"
+  "templates/inbox/partials/_filter_bar.html"
+  "templates/inbox/partials/_message_row.html"
+  "templates/inbox/partials/_message_panel.html"
+  "templates/inbox/partials/_empty_state.html"
 )
 
 # Bestanden waar onze code in leeft. Niet conflictgevoelig, maar wel de plekken
@@ -50,6 +57,14 @@ LEUNT_OP=(
   # Datzelfde script registreert een Alpine-store en moet dus vóór Alpine
   # draaien. Dat klopt alleen zolang base.html Alpine met `defer` laadt.
   "templates/base.html"
+  # De postverwijzing leeft van twee dingen die upstream vult: de sleutels in
+  # InboxMessage.extra (stored_post_id, post_id, post_permalink_url) en het
+  # opzoeken van related_post. Verdwijnt of hernoemt een van die sleutels, dan
+  # blijft de chip staan maar wijst hij nergens meer heen, zonder foutmelding.
+  "apps/inbox/tasks.py"
+  "apps/inbox/webhooks.py"
+  "providers/facebook.py"
+  "providers/meta_comments.py"
 )
 
 REBASE=0
