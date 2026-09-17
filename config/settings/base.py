@@ -115,6 +115,7 @@ TEMPLATES = [
                 "apps.common.context_processors.sidebar_context",
                 "apps.onboarding.context_processors.onboarding_checklist",
                 "apps.intelligence.context_processors.intelligence_flag",
+                "apps.accounts.context_processors.signup_open",
             ],
         },
     },
@@ -223,6 +224,10 @@ ACCOUNT_EMAIL_SUBJECT_PREFIX = ""
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 LOGIN_REDIRECT_URL = "/"
 ACCOUNT_LOGOUT_REDIRECT_URL = "/accounts/login/"
+# Registration is closed unless this is true or the visitor holds an
+# invitation (Blue Monkey Media fork; see apps/accounts/signup_policy.py).
+ACCOUNT_OPEN_SIGNUP = env.bool("ACCOUNT_OPEN_SIGNUP", default=False)
+ACCOUNT_ADAPTER = "apps.accounts.adapters.AccountAdapter"
 
 AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
