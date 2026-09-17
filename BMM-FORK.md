@@ -248,6 +248,86 @@ Instagram publiceert een losse video altijd als Reel. Herkadreren van video's
 staat in het plan (`bmm/instagram-plaatsingen-plan.md`, increment 4) en is niet
 gebouwd.
 
+## Reacties per post
+
+De inbox zette alle reacties op een hoop. Je zag wie iets schreef en wanneer,
+maar niet waar het onder stond, en je kon de reacties onder een post ook niet
+bij elkaar zetten.
+
+Het opvallende is dat de koppeling er al was. `InboxMessage.related_post` staat
+sinds de eerste migratie in het model en wordt door allebei de wegen gevuld:
+het pollen zoekt hem per batch op in een query (`apps/inbox/tasks.py`,
+`resolve_related_posts`) en de webhook doet dezelfde opzoeking per gebeurtenis
+(`apps/inbox/webhooks.py`). Alleen las **geen enkele template hem ooit**. Dit is
+dus geen nieuwe gegevensstroom, het is het zichtbaar maken van een die al liep.
+Vandaar ook: geen migratie, geen env, geen achtergrondtaak.
+
+Wat je nu ziet:
+
+- **In de lijst** een chip onder de reactie met de eerste regel van de caption.
+  Klik erop en de feed staat op die ene post.
+- **In het detailpaneel** een kaart boven het bericht met de post, de
+  publicatiedatum en drie uitgangen: bekijken op het platform, openen in de
+  composer, en alle berichten onder dezelfde post.
+- **Boven de filterbalk** een melding welke post actief is, met het totaal
+  eronder en een knop terug naar alles.
+
+Drie dingen die het ontwerp bepalen:
+
+1. **Gefilterd wordt op het post-id van het platform, niet op de `PlatformPost`.**
+   Daarmee vallen reacties op een post die niet uit deze Brightbean komt in
+   dezelfde groep als de rest, en blijft een post die om wat voor reden dan ook
+   niet gekoppeld raakte toch bij elkaar te zetten. Facebook bewaart twee
+   spellingen van hetzelfde id (`post_id` met paginaprefix, `stored_post_id`
+   zonder); het filter kijkt naar allebei, anders halveert het stilletjes een
+   gesprek.
+2. **Een ongekoppelde post heet geen "elders geplaatst".** YouTube noemt het
+   `video_id` en LinkedIn `post_urn`, en `resolve_related_posts` kijkt naar geen
+   van beide, dus die reacties zijn ongekoppeld terwijl de post wel degelijk uit
+   Brightbean kan komen. De verwijzing toont dan het id en beweert verder niets.
+   Die twee sleutels worden wel gelezen voor het groeperen, dus **filteren per
+   post werkt daar al, koppelen nog niet.**
+3. **De permalink wordt nooit verzonnen.** Facebook en Instagram geven
+   `post_permalink_url` mee en die geven we door. Een provider die dat niet doet
+   levert geen link op, in plaats van een gegokte URL die een 404 geeft.
+
+De teller in de melding negeert bewust de andere filters. Die melding staat
+buiten het stuk dat HTMX verwisselt, dus een teller die op status meerekent zou
+blijven staan op de stand van het paginaladen en vanaf dat moment liegen.
+
+### Voetafdruk
+
+| Bestand | Wat |
+|---|---|
+| `apps/inbox/post_reference.py` | **nieuw**, de sleutel, het label en het filter |
+| `apps/inbox/templatetags/bmm_inbox.py` | **nieuw**, de filter voor de templates |
+| `templates/inbox/partials/_post_chip.html` | **nieuw**, de chip in de lijst |
+| `templates/inbox/partials/_post_card.html` | **nieuw**, de kaart in het paneel |
+| `templates/inbox/partials/_post_filter_notice.html` | **nieuw**, de actieve-postmelding |
+| `apps/inbox/tests/test_post_reference.py` | **nieuw**, tests |
+| `apps/inbox/views.py` | een import, `select_related` erbij, het filter, twee contextregels |
+| `templates/inbox/feed.html` | 1 include |
+| `templates/inbox/partials/_message_row.html` | 1 include |
+| `templates/inbox/partials/_message_panel.html` | 1 include |
+| `templates/inbox/partials/_empty_state.html` | 1 voorwaarde uitgebreid |
+| `templates/inbox/partials/_filter_bar.html` | `[name='post']` in de vijf `hx-include`-lijsten |
+
+Zes bestaande bestanden, rond de 25 regels. Die filterbalk is de enige plek die
+aandacht vraagt bij een rebase: elk filter somt zelf op welke invoervelden het
+meestuurt, dus een filter dat upstream erbij bouwt moet `[name='post']` ook in
+zijn lijst krijgen, anders valt het postfilter weg zodra je dat nieuwe filter
+gebruikt. Het verborgen invoerveld zelf staat in de melding, buiten het stuk dat
+HTMX verwisselt.
+
+### Wat er niet in zit
+
+Koppelen van YouTube-, LinkedIn- en Mastodon-reacties aan hun `PlatformPost`
+(daarvoor moeten die providers dezelfde sleutel schrijven, plus een backfill
+voor wat al binnen is), en een ingang vanaf de post zelf: een "reacties (n)"-link
+op een gepubliceerde post in de composer of de kalender. Bulkacties resetten de
+lijst naar ongefilterd, ook voor dit filter; dat doet upstream voor elk filter
+en is hier bewust niet rechtgetrokken.
+
 ## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
 
 De browser PUT de parts **rechtstreeks** naar de opslag met een presigned URL. Die
