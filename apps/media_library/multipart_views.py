@@ -36,10 +36,7 @@ from .tasks import process_media_asset
 from .validators import MAX_FILE_SIZES
 from .views import _get_workspace_or_404
 
-LOCAL_MODE_MSG = (
-    "Chunked upload needs the S3 storage backend; this deployment stores media on "
-    "the local filesystem."
-)
+LOCAL_MODE_MSG = "Chunked upload needs the S3 storage backend; this deployment stores media on the local filesystem."
 
 #: How long a session may stay open before the cleanup task discards it.
 SESSION_TTL = timedelta(hours=12)
@@ -63,9 +60,7 @@ def _guard_s3():
 
 
 def _pending_or_404(request, workspace, pending_id):
-    return get_object_or_404(
-        PendingUpload, pk=pending_id, workspace=workspace, organization=workspace.organization
-    )
+    return get_object_or_404(PendingUpload, pk=pending_id, workspace=workspace, organization=workspace.organization)
 
 
 @login_required
@@ -170,8 +165,7 @@ def multipart_urls(request, workspace_id, pending_id):
     return JsonResponse(
         {
             "urls": [
-                {"part_number": n, "url": multipart.presign_part(pending.storage_key, upload_id, n)}
-                for n in numbers
+                {"part_number": n, "url": multipart.presign_part(pending.storage_key, upload_id, n)} for n in numbers
             ]
         }
     )
@@ -261,9 +255,7 @@ def complete_and_register(request, workspace, pending, *, folder=None, alt_text=
     expected = multipart.plan_part_count(int(pending.max_bytes))
     if len(parts) != expected:
         missing = sorted(set(range(1, expected + 1)) - {p["part_number"] for p in parts})
-        return None, JsonResponse(
-            {"error": f"Not all parts arrived; missing {missing[:20]}."}, status=409
-        )
+        return None, JsonResponse({"error": f"Not all parts arrived; missing {missing[:20]}."}, status=409)
 
     multipart.complete_multipart(pending.storage_key, upload_id, parts)
 
@@ -281,9 +273,7 @@ def complete_and_register(request, workspace, pending, *, folder=None, alt_text=
         )
     except ValidationError as exc:
         delete_object(pending.storage_key)
-        return None, JsonResponse(
-            {"error": "; ".join(getattr(exc, "messages", [str(exc)]))}, status=415
-        )
+        return None, JsonResponse({"error": "; ".join(getattr(exc, "messages", [str(exc)]))}, status=415)
 
     # The declared size is the client's word; the stored size is a fact. They must
     # match exactly. This is what closes the gap left by not being able to bound
@@ -291,18 +281,12 @@ def complete_and_register(request, workspace, pending, *, folder=None, alt_text=
     if int(inspected["size"]) != int(pending.max_bytes):
         delete_object(pending.storage_key)
         return None, JsonResponse(
-            {
-                "error": (
-                    f"Size mismatch: declared {pending.max_bytes}, stored {inspected['size']}."
-                )
-            },
+            {"error": (f"Size mismatch: declared {pending.max_bytes}, stored {inspected['size']}.")},
             status=400,
         )
 
     with transaction.atomic():
-        locked = PendingUpload.objects.select_for_update().get(
-            id=pending.id, workspace_id=workspace.id
-        )
+        locked = PendingUpload.objects.select_for_update().get(id=pending.id, workspace_id=workspace.id)
         if locked.finalized_at and locked.media_asset_id:
             asset = locked.media_asset
         else:

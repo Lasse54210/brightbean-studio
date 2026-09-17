@@ -579,8 +579,13 @@ class PublishErrorIsNeverRawTest(TestCase):
         self.assertNotIn("retry shortly", self.platform_post.publish_error)
 
 
-class ResolvePostTypeTest(SimpleTestCase):
-    """Post-type resolution, which decides the shape of every publish payload."""
+class ResolvePostTypeInstagramTest(SimpleTestCase):
+    """Post-type resolution for Instagram, which has no standalone feed video.
+
+    Named apart from ``ResolvePostTypeTest`` above on purpose: two classes with
+    one name in a module means Python keeps only the second and the other set
+    silently stops running.
+    """
 
     def _resolve(self, platform, first_media_type="video", media_count=1, extra=None):
         return PublishEngine._resolve_post_type(

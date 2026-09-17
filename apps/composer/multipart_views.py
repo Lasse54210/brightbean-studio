@@ -42,14 +42,10 @@ def multipart_finish(request, workspace_id, pending_id=None, post_id=None):
     way to find out.
     """
     if not is_s3_backend():
-        return JsonResponse(
-            {"error": "Chunked upload needs the S3 storage backend."}, status=409
-        )
+        return JsonResponse({"error": "Chunked upload needs the S3 storage backend."}, status=409)
 
     workspace = _get_workspace(request, workspace_id)
-    pending = get_object_or_404(
-        PendingUpload, pk=pending_id, workspace=workspace, organization=workspace.organization
-    )
+    pending = get_object_or_404(PendingUpload, pk=pending_id, workspace=workspace, organization=workspace.organization)
 
     if pending.finalized_at and pending.media_asset_id is None:
         return JsonResponse(

@@ -14,7 +14,6 @@ Verified on 2026-09-11 against the Graph API reference for
 ``POST /{ig-user-id}/media``.
 """
 
-
 # key -> the media_type values it is valid on. "" is a feed image (Instagram's
 # container takes no media_type for that case).
 _ALLOWED_ON = {

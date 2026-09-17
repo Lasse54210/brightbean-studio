@@ -202,9 +202,7 @@ def list_parts(storage_key: str, upload_id: str) -> list[dict]:
     client, bucket = _client_and_bucket()
     parts: list[dict] = []
     paginator = client.get_paginator("list_parts")
-    for page in paginator.paginate(
-        Bucket=bucket, Key=_normalize(storage_key), UploadId=upload_id
-    ):
+    for page in paginator.paginate(Bucket=bucket, Key=_normalize(storage_key), UploadId=upload_id):
         for part in page.get("Parts", []) or []:
             parts.append(
                 {
@@ -245,6 +243,4 @@ def abort_multipart(storage_key: str, upload_id: str) -> None:
     and land in backups.
     """
     client, bucket = _client_and_bucket()
-    client.abort_multipart_upload(
-        Bucket=bucket, Key=_normalize(storage_key), UploadId=upload_id
-    )
+    client.abort_multipart_upload(Bucket=bucket, Key=_normalize(storage_key), UploadId=upload_id)
