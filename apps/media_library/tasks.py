@@ -215,3 +215,25 @@ def run_orphaned_media_sweep():
     # min_age_days falls through to services.ORPHANED_MEDIA_MIN_AGE_DAYS (the
     # single source), matching the management command's default.
     sweep_orphaned_media(log=logger.info)
+
+
+# Blue Monkey Media fork: abandoned multipart uploads. Parts of an upload that
+# was never completed or aborted stay in the bucket, invisible to a listing and
+# to the sweeps above. Daily is plenty; the check itself is one bucket listing.
+STALE_MULTIPART_SWEEP_INTERVAL_SECONDS = 24 * 60 * 60
+
+
+@background(schedule=0)
+def run_stale_multipart_sweep():
+    """Abort open multipart uploads that are old and claimed by no live session.
+
+    Wraps ``multipart_sweep.abort_stale_multipart_uploads``, the same code the
+    ``abort_stale_multipart_uploads`` management command runs.
+    """
+    from .multipart_sweep import abort_stale_multipart_uploads
+    from .storage import is_s3_backend
+
+    if not is_s3_backend():
+        return
+    summary = abort_stale_multipart_uploads(log=logger.info)
+    logger.info("stale multipart sweep: %s", summary)
