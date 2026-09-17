@@ -246,7 +246,120 @@ en duur en niet naar bestandsgrootte, codec of framerate; die staan wel in de
 referentie maar niet in `instagram_specs.py`. Feed-video als eigen plaatsing bestaat niet:
 Instagram publiceert een losse video altijd als Reel. Herkadreren van video's
 staat in het plan (`bmm/instagram-plaatsingen-plan.md`, increment 4) en is niet
-gebouwd.
+gebouwd; eigen bestanden per account (increment 3) wel, zie hieronder.
+
+## Registratie op uitnodiging
+
+Upstream laat registratie open, en `apps/accounts/signals.py` geeft iedere
+nieuwe gebruiker zonder uitnodiging een eigen "My Organization" met een eigen
+workspace. Voor een gehost product is dat juist; voor een eigen instantie
+betekent het dat iedereen die de loginpagina vindt een account met opslag op
+onze bucket krijgt, en dat een collega die gewoon inlogt in zijn eigen lege
+organisatie belandt en nooit onder Team members van het bureau verschijnt.
+
+Sinds deze ronde is registratie **dicht** tenzij een van twee dingen geldt:
+
+- `ACCOUNT_OPEN_SIGNUP=true` in de omgeving (het gedrag van upstream terug), of
+- de bezoeker komt via een uitnodigingslink. `accept_invite` parkeert het token
+  in de sessie voordat hij naar het aanmeldformulier stuurt, en het signaal na
+  aanmelding accepteert het. Een geldig token is dus het bewijs dat iemand in
+  een organisatie om dit account heeft gevraagd.
+
+De regel staat op één plek, `apps/accounts/signup_policy.py`, en wordt gelezen
+door de allauth-adapter voor e-mail (`AccountAdapter`), die voor Google
+(`SocialAccountAdapter.is_open_for_signup`), de loginpagina (die "Sign up"
+verbergt) en de pagina `account/signup_closed.html` die allauth toont als het
+niet mag. Inloggen raakt het nooit: de poort beslist alleen of er een *nieuw*
+account mag komen.
+
+Wat er voor bestaande gebruikers verandert: niets. Wie al in zijn eigen
+"My Organization" zit, komt in de goede organisatie via Team members > Invite op
+exact het e-mailadres waarmee hij inlogt; `accept_invitation` eist die match.
+
+## Wees-parts: afgebroken gestukte uploads opruimen
+
+Een gestukte upload die gestart is en nooit voltooid of afgebroken, houdt al zijn
+ontvangen parts vast. Die staan in geen enkele bucketlisting, zijn geen object,
+geen `MediaAsset` wijst ernaar, en toch nemen ze ruimte in en gaan ze mee in
+elke buckettar. Een browsertab die halverwege een video van 2 GB dichtgaat laat
+2 GB achter, stil en voorgoed. Upstreams `sweep_pending_uploads` ruimt alleen de
+rij en het (niet-bestaande) object op; de parts bleven.
+
+`apps/media_library/multipart_sweep.py` is de ontbrekende helft: het somt de
+open multipart-uploads in de bucket op en breekt af wat **ouder is dan 24 uur**
+(`STALE_AFTER`) en **door geen levende `PendingUpload`-rij** wordt geclaimd. De
+drempel is bewust langer dan de uploadsessie van 12 uur, zodat een lopende
+overdracht nooit door een slecht getimede veegronde wordt afgekapt.
+
+Twee ingangen op dezelfde code:
+
+- de achtergrondtaak `run_stale_multipart_sweep`, dagelijks, geregistreerd naast
+  de bestaande sweeps in `apps/media_library/apps.py` (registratie gebeurt bij
+  `migrate`, dus de migrate-service van een deploy zet hem aan);
+- `python manage.py abort_stale_multipart_uploads [--dry-run] [--older-than-hours N]`
+  voor de eerste keer op een installatie met een achterstand. Draai hem eerst
+  met `--dry-run`; hij noemt per upload wat hij zou doen en waarom.
+
+Op een installatie zonder S3 doet allebei niets.
+
+## Eigen media per account (increment 3)
+
+`PlatformPost.platform_specific_media` bestond upstream al ("JSON list of media
+asset IDs with platform-specific ordering/cropping"), werd door niemand
+geschreven en alleen door de wezenopruiming gelezen. De composer schrijft hem
+nu per Instagram-account, en `apps/publisher/media_selection.py` vertaalt hem
+terug naar bijlagen voor de publisher.
+
+Wat je ermee kunt: één post met een 9:16 voor de Story op het ene account en een
+4:5 voor het feed op het andere, met bestanden die in de edit gemaakt zijn. In
+het paneel staat onder de plaatsing het blok **Media for this account**; "Pick
+own files" opent een kiezer over de mediabibliotheek (alle soorten, ook gedeelde
+items), de volgorde van kiezen is de carrouselvolgorde en is met pijltjes te
+wijzigen. Leeg betekent: publiceer de bijlagen van de post, precies zoals eerst.
+
+De regels:
+
+- De lijst wint, in lijstvolgorde. Een id dat niet meer bestaat wordt bij het
+  publiceren overgeslagen; resolvet er niets, dan vallen we terug op de bijlagen
+  van de post. Een bestaande post gedraagt zich dus exact als voorheen.
+- Aan de poort is een verdwenen bestand juist wél een stop: anders publiceert de
+  terugval stilletjes iets anders dan wat gekozen was.
+- Alle plaatsingscontroles (soort, verhouding, duur) worden op de eigen bestanden
+  gedaan zodra die er zijn, in het paneel en op de server. Een Reel die grijs was
+  op de afbeelding van de post gaat aan zodra je voor het account een video kiest.
+- Het formulierveld `ig_media_ids_<acc>` is net zo bewaakt als de plaatsing:
+  afwezig is "houd wat er staat", aanwezig-en-leeg is "wis de lijst". Het
+  paneel stuurt het veld altijd mee, dus leegmaken wist echt.
+- Alt-tekst loopt mee als hetzelfde bestand ook aan de post hangt.
+
+De kiezer stuurt per bestand de metingen van de server mee (breedte, hoogte,
+duur; 0 is "nog niet gemeten" en blokkeert niets), want een bestand dat niet aan
+de post hangt staat niet in het `#media-list` waar de browser de rest opmeet.
+
+### Voetafdruk van deze ronde
+
+| Bestand | Wat |
+|---|---|
+| `apps/accounts/signup_policy.py`, `context_processors.py`, `tests/test_signup_policy.py` | **nieuw** |
+| `templates/account/signup_closed.html` | **nieuw** |
+| `apps/media_library/multipart_sweep.py`, `management/commands/abort_stale_multipart_uploads.py`, `tests/test_multipart_sweep.py` | **nieuw** |
+| `apps/publisher/media_selection.py`, `test_media_selection.py` | **nieuw** |
+| `apps/composer/tests/test_instagram_own_media.py` | **nieuw** |
+| `templates/composer/partials/_instagram_media_modal.html`, `account_media_picker.html` | **nieuw** |
+| `apps/accounts/adapters.py` | een `AccountAdapter` en één methode op de bestaande social-adapter |
+| `config/settings/base.py` | `ACCOUNT_OPEN_SIGNUP`, `ACCOUNT_ADAPTER`, één context processor |
+| `templates/account/login.html` | `{% if signup_open %}` om de Sign-up-link |
+| `apps/media_library/tasks.py` | één taak erbij, onderaan |
+| `apps/media_library/apps.py` | één registratie erbij |
+| `apps/publisher/engine.py` | één import, één regel: `resolve_attachments(platform_post)` |
+| `apps/composer/views.py` | drie namen in de bestaande import, één regel in `_sync_platform_posts`, drie regels in de compose-context, één view `account_media_picker` |
+| `apps/composer/urls.py` | één route |
+| `apps/composer/instagram_extras.py` | eigen bestand van de fork, uitgebreid |
+| `templates/composer/compose.html` | één include |
+| `templates/composer/partials/_instagram_settings.html` | eigen bestand van de fork, uitgebreid |
+
+Opnieuw **geen migratie**: `platform_specific_media` bestond al, en registratie
+en opruiming schrijven geen kolom.
 
 ## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
 
