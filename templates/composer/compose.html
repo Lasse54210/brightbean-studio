@@ -1127,6 +1127,7 @@
                 <template x-for="accId in selectedAccounts" :key="'ig-settings-' + accId">
                     {% include "composer/partials/_instagram_settings.html" %}
                 </template>
+                {% include "composer/partials/_instagram_media_modal.html" %}
 
                 <!-- Override toggle buttons -->
                 <div class="flex flex-wrap gap-1.5" x-show="selectedAccounts.length > 0">

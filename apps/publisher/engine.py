@@ -34,6 +34,7 @@ from apps.common.db import in_worker_thread, release_idle_connection
 from apps.composer.models import PlatformPost
 from apps.credentials.models import resolve_platform_credentials
 from apps.media_library.storage import download_to_path
+from apps.publisher.media_selection import resolve_attachments
 from apps.social_accounts.error_messages import (
     FIRST_COMMENT_GENERIC_MESSAGE,
     PUBLISH_CONFIRM_TIMEOUT_MESSAGE,
@@ -706,7 +707,10 @@ class PublishEngine:
         owns_cache = media_cache is None
         if owns_cache:
             media_cache = _SharedMediaCache()
-        attachments = list(platform_post.post.media_attachments.select_related("media_asset").order_by("position"))
+        # Blue Monkey Media fork: an account may publish its own files instead of
+        # the post's (apps/publisher/media_selection.py); same shape either way,
+        # and the post's own rows are what it falls back to.
+        attachments = resolve_attachments(platform_post)
 
         # For video-only platforms (YouTube, TikTok), skip non-video attachments
         video_only = set(provider.supported_post_types) <= {PostType.VIDEO, PostType.SHORT}

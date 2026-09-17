@@ -263,6 +263,15 @@ increment.
 
 ## Increment 3: eigen media per account
 
+**Gebouwd (2026-09-14).** Afwijkingen van het plan hieronder: de kiezer is een
+eigen modal (`_instagram_media_modal.html`) met een eigen view
+(`account_media_picker`) in plaats van de bestaande media-modal, want die hangt
+bestanden server-side aan de post en dat is precies wat hier niet mag; een
+verdwenen bestand is aan de poort een stop en bij het publiceren een
+overslaan; alt-tekst loopt mee als het bestand ook aan de post hangt; en alle
+plaatsingscontroles kijken naar de eigen bestanden zodra die er zijn. Zie
+`BMM-FORK.md`, "Eigen media per account".
+
 Zodat een post een 9:16-versie voor de Story en een 4:5-versie voor het feed kan
 hebben, met bestanden die wij zelf in de edit maken.
 

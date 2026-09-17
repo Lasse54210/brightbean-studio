@@ -39,6 +39,7 @@ urlpatterns = [
     # Media
     path("compose/media-picker/", views.media_picker, name="media_picker"),
     path("compose/thumbnail-picker/", views.thumbnail_picker, name="thumbnail_picker"),
+    path("compose/account-media-picker/", views.account_media_picker, name="account_media_picker"),
     path("compose/thumbnail-upload/", views.thumbnail_upload, name="thumbnail_upload"),
     path("compose/media-stream/<uuid:asset_id>/", views.media_stream, name="media_stream"),
     path("compose/media-filmstrip/<uuid:asset_id>/", views.media_filmstrip, name="media_filmstrip"),
