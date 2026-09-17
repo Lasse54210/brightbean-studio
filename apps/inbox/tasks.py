@@ -1,5 +1,6 @@
 """Inbox sync engine - polls connected accounts for new messages."""
 
+import inspect
 import logging
 import re
 from datetime import timedelta
@@ -82,6 +83,24 @@ def _related_post_key(extra: dict | None) -> str:
     return post_key(extra)
 
 
+def fetch_messages(provider, account, since):
+    """Ask a provider for this account's messages.
+
+    Blue Monkey Media fork. Upstream's signature is
+    ``get_messages(access_token, since)``, which is enough for a provider whose
+    token names exactly one identity. LinkedIn Company Pages break that: one
+    member token administers several Pages, so without the account the provider
+    cannot know whose posts to poll and falls back to the member's own.
+
+    Rather than widen the signature in all eight providers, the account is
+    handed only to those that declare they want it. A provider that does not is
+    called exactly as upstream calls it, so this stays invisible on a rebase.
+    """
+    if "account" in inspect.signature(provider.get_messages).parameters:
+        return provider.get_messages(access_token=account.oauth_access_token, since=since, account=account)
+    return provider.get_messages(access_token=account.oauth_access_token, since=since)
+
+
 def resolve_related_posts(account, messages) -> dict[str, Any]:
     """Map post ids in a batch of messages to this account's PlatformPost pks.
 
@@ -158,7 +177,7 @@ class InboxSyncEngine:
             if account.platform == "youtube":
                 messages = self._get_youtube_messages(account, provider, last_msg)
             else:
-                messages = provider.get_messages(access_token=account.oauth_access_token, since=last_msg)
+                messages = fetch_messages(provider, account, last_msg)
         except NotImplementedError:
             return
         except ProviderError as exc:

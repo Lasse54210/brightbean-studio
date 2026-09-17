@@ -82,6 +82,60 @@ teruggevonden op de unieke `storage_key` in plaats van opgeslagen. Dat scheelt
 niet alleen een tabel: een eigen migratienummer botst vroeg of laat met een
 migratie van upstream, en dat is normaal wat een gedragen Django-patch duur maakt.
 
+## De inbox van een LinkedIn-bedrijfspagina
+
+Een Company Page haalde de verkeerde posts op. `LinkedInProvider.get_messages`
+leidt de auteur af uit het profiel achter het token, en dat profiel is altijd
+een persoon. `LinkedInCompanyProvider` erfde die methode zonder hem te
+overschrijven, dus een pagina-account pollde de posts van degene die hem ooit
+koppelde: de persoonlijke reacties van die persoon kwamen in de inbox van de
+pagina terecht, en de reacties op de pagina zelf kwamen helemaal nooit binnen.
+
+De moeilijkheid zit in de handtekening. `get_messages(access_token, since)` is
+genoeg voor een provider waarvan het token precies een identiteit aanwijst,
+maar een LinkedIn-lid beheert meerdere pagina's met hetzelfde token. Zonder het
+account weet de provider niet welke pagina bedoeld wordt.
+
+We hebben die handtekening niet in alle acht providers opengebroken. In plaats
+daarvan geeft `fetch_messages` (in `apps/inbox/tasks.py`) het account alleen mee
+aan een provider die er in zijn handtekening om vraagt. Een provider van
+upstream wordt exact aangeroepen zoals upstream hem aanroept, dus dit is bij een
+rebase onzichtbaar. In `linkedin.py` staat een naad van vier regels
+(`_messages_for_author`), en de rest zit in onze eigen `linkedin_company.py`.
+
+Zonder account geeft de pagina-inbox een lege lijst en een waarschuwing in het
+log. Terugvallen op het lid zou stilletjes de verkeerde reacties binnenhalen,
+en dat is erger dan niets.
+
+**Dit werkt alleen met een app die Community Management API-goedkeuring heeft.**
+Upstream leidt de modus af uit de env: staat `PLATFORM_LINKEDIN_PERSONAL_*`
+gezet, dan draait persoonlijk LinkedIn in `oidc`-modus en is de inbox daar
+sowieso uitgeschakeld. Laat je die leeg en zet je alleen
+`PLATFORM_LINKEDIN_COMPANY_CLIENT_ID` en `_SECRET`, dan valt persoonlijk terug
+op dezelfde app in `community_management`-modus en werken inbox, eerste reactie
+en refresh-tokens allemaal.
+
+## Wat upstream inmiddels zelf draagt
+
+Bijgetrokken op upstream `05027b4` (2026-09-17, 34 commits). Twee van onze
+patches konden daarbij weg, en dat is winst: een patch die je niet meer draagt
+kan ook niet meer scheef rebasen.
+
+- **`is_s3_backend`** is door upstream zelf gerepareerd (`__class__` in plaats
+  van `type()`). Alleen onze twee regressietests blijven, want die hebben zij
+  niet.
+- **`is_video_url`** staat nu in `providers/types.py`, met dezelfde redenering
+  over presigned URL's, en `PublishContent.is_video()` gaat er nog overheen door
+  het gesniffde mediatype voor te laten gaan op de extensie. Onze kopie in
+  `instagram_placement.py` is verwijderd; het plaatsingspaneel zelf blijft.
+
+Twee dingen om te weten bij de volgende ronde. Upstream noemde een nieuwe
+testklasse net als de onze (`ResolvePostTypeTest`), en twee klassen met een naam
+in een module betekent dat Python de eerste weggooit zonder te klagen: de suite
+blijft groen terwijl er tests verdwijnen. En upstream bracht voor het eerst
+**migraties** mee (inbox, composer, analytics, social_accounts), dus de uitrol
+van deze ronde is geen kale image-wissel meer en een rollback vraagt de dump.
+
 ## Bijwerken
 
 ```bash

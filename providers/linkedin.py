@@ -540,7 +540,15 @@ class LinkedInProvider(SocialProvider):
         # Determine author URN
         profile = self.get_profile(access_token)
         author = f"urn:li:person:{profile.platform_id}"
+        return self._messages_for_author(access_token, author, since)
 
+    def _messages_for_author(self, access_token: str, author: str, since: datetime | None = None) -> list[InboxMessage]:
+        """Comments on the posts of one author URN.
+
+        Blue Monkey Media fork: split off so the Company Page variant can hand
+        in ``urn:li:organization:...``. Everything below reads the author out of
+        one variable, so the two callers differ only in that string.
+        """
         # Fetch recent posts by this author
         params: dict = {"q": "author", "author": author, "count": 20}
         resp = self._request(

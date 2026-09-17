@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from apps.inbox.tasks import InboxSyncEngine, _related_post_key, resolve_related_posts
+from apps.inbox.tasks import InboxSyncEngine, _related_post_key, fetch_messages, resolve_related_posts
 from apps.social_accounts.models import SocialAccount
 from providers import get_provider
 
@@ -56,10 +56,7 @@ class Command(BaseCommand):
         for account in accounts:
             try:
                 provider = get_provider(account.platform, _resolve_publish_credentials(account))
-                messages = provider.get_messages(
-                    access_token=account.oauth_access_token,
-                    since=since,
-                )
+                messages = fetch_messages(provider, account, since)
                 related_posts = resolve_related_posts(account, messages)
                 count = 0
                 for msg in messages:

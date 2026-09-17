@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from .linkedin import API_BASE, LINKEDIN_HEADERS, LinkedInProvider
+from .types import InboxMessage
 
 logger = logging.getLogger(__name__)
 
@@ -62,3 +63,24 @@ class LinkedInCompanyProvider(LinkedInProvider):
                 }
             )
         return pages
+
+    def get_messages(self, access_token: str, since=None, account=None) -> list[InboxMessage]:
+        """Comments on this Page's posts, not on the member's own.
+
+        Blue Monkey Media fork. The base provider derives the author from the
+        profile behind the token, which is a person, so a Company Page account
+        was polling the posts of whoever connected it: the member's comments
+        landed in the Page's inbox and the Page's own comments never arrived at
+        all.
+
+        ``account`` is optional because upstream's signature has no room for it
+        and we do not want to change every provider (see
+        ``apps/inbox/tasks.py``, ``_fetch_messages``). Without one there is no
+        way to know *which* Page is meant, and answering with the member's
+        comments would be worse than answering with nothing.
+        """
+        organization_id = getattr(account, "account_platform_id", "")
+        if not organization_id:
+            logger.warning("LinkedIn Company inbox skipped: no account given, so no organization to poll")
+            return []
+        return self._messages_for_author(access_token, f"urn:li:organization:{organization_id}", since)
