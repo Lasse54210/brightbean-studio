@@ -187,6 +187,27 @@ def test_storage_key_keeps_a_readable_name_without_becoming_unsafe():
     assert a != b
 
 
+def test_is_s3_backend_looks_through_the_lazy_proxy(settings):
+    # This is the one that cost the most: default_storage is a lazy proxy, so
+    # type() reports the proxy's own class and never the backend behind it. With
+    # type() the check is False even when S3 is configured, and then every
+    # presigned upload path refuses with "this deployment stores media on the
+    # local filesystem" while the deployment does no such thing.
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "default": {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"},
+    }
+    assert ml_storage.is_s3_backend() is True
+
+
+def test_is_s3_backend_is_false_on_local_storage(settings):
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    }
+    assert ml_storage.is_s3_backend() is False
+
+
 class _FakeSigner:
     def generate_presigned_url(self, *args, **kwargs):
         return "internal://signed-by-the-storage-client"
