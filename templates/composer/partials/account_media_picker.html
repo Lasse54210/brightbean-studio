@@ -1,0 +1,53 @@
+{% comment %}
+Picker for an Instagram account's own files (Blue Monkey Media fork). Loaded
+via HTMX into the modal in _instagram_media_modal.html. Context: assets,
+workspace.
+
+Clicking a file dispatches 'account-media-selected' with the file's id, URLs,
+kind and measurements (data-item is JSON built by the view). The modal writes
+it into the account's platformExtras; nothing is attached server-side until
+the post is saved.
+{% endcomment %}
+
+{% if assets %}
+<div class="grid grid-cols-4 gap-3">
+    {% for asset in assets %}
+    <div class="group relative rounded-xl overflow-hidden border border-stone-200 aspect-square cursor-pointer hover:border-orange-400 hover:shadow-md transition-all duration-150"
+         data-item="{{ asset.bmm_item_json }}"
+         @click="$dispatch('account-media-selected', JSON.parse($el.dataset.item))">
+        {% if asset.thumbnail %}
+        <img src="{{ asset.thumbnail.url }}" class="w-full h-full object-cover" alt="{{ asset.filename }}">
+        {% elif asset.is_video and asset.file %}
+        <video src="{{ asset.file.url }}#t=0.5" class="w-full h-full object-cover" muted preload="metadata"></video>
+        {% elif asset.file %}
+        <img src="{{ asset.file.url }}" class="w-full h-full object-cover" alt="{{ asset.filename }}">
+        {% else %}
+        <div class="w-full h-full bg-stone-100"></div>
+        {% endif %}
+        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-150"></div>
+        {% if asset.is_video %}
+        <div class="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold text-white bg-black/60 backdrop-blur-sm">
+            {{ asset.duration|floatformat:0 }}s
+        </div>
+        {% endif %}
+        {% if asset.width and asset.height %}
+        <div class="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold text-white bg-black/50 backdrop-blur-sm tabular-nums">
+            {{ asset.width }}x{{ asset.height }}
+        </div>
+        {% endif %}
+        {% if asset.is_shared %}
+        <span class="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-white"
+              style="background: rgba(20,184,166,0.9); letter-spacing: 0.06em;">SHARED</span>
+        {% endif %}
+        <div class="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <span class="text-[10px] text-white font-medium truncate block">{{ asset.filename }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-12">
+    <p class="text-sm font-medium text-stone-500 mb-1">No media yet</p>
+    <p class="text-xs text-stone-400">Upload the account's version of the file to the media library first, then pick it here.</p>
+</div>
+{% endif %}

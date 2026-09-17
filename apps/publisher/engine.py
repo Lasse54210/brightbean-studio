@@ -30,6 +30,7 @@ from django.utils import timezone
 
 from apps.composer.models import PlatformPost
 from apps.credentials.models import resolve_platform_credentials
+from apps.publisher.media_selection import resolve_attachments
 from apps.social_accounts.error_messages import (
     FIRST_COMMENT_GENERIC_MESSAGE,
     PUBLISH_EXHAUSTED_MESSAGE,
@@ -427,7 +428,9 @@ class PublishEngine:
         media_files = []
         media_urls = []
         temp_files = []
-        attachments = list(platform_post.post.media_attachments.select_related("media_asset").order_by("position"))
+        # Blue Monkey Media fork: an account may publish its own files instead of
+        # the post's (apps/publisher/media_selection.py); same shape either way.
+        attachments = resolve_attachments(platform_post)
 
         # For video-only platforms (YouTube, TikTok), skip non-video attachments
         video_only = set(provider.supported_post_types) <= {PostType.VIDEO, PostType.SHORT}

@@ -12,6 +12,8 @@ automatic derivation (one video -> Reel, several files -> carousel, an image ->
 feed image) was the only thing you could get, and a Story was unreachable.
 """
 
+import uuid
+
 from .instagram_specs import CAROUSEL_MAX_ITEMS, blocking_message, check_media
 
 # The placements you can pick per account. Keys are PostType values, because
@@ -82,6 +84,100 @@ def build_instagram_extra(request, acc_id, existing=None):
                 extra["thumb_offset"] = offset
 
     return extra
+
+
+# ---------------------------------------------------------------------------
+# Own media per account
+# ---------------------------------------------------------------------------
+
+# The form field that carries an account's own files: a comma-separated list of
+# MediaAsset ids in carousel order. Absent means "the panel was not in this
+# form, keep what is stored"; present and empty means "no own files, publish
+# the post's attachments", which is the way back.
+MEDIA_FIELD = "ig_media_ids_{acc_id}"
+
+
+def build_instagram_media(request, acc_id, existing=None):
+    """``platform_specific_media`` for one account: a list of asset ids or None.
+
+    Same guard as ``build_instagram_extra``: a submit without the field keeps
+    the stored list. Anything that is not a UUID is dropped rather than stored,
+    because the publisher will look these up by primary key and the orphan
+    sweep parses them as UUIDs.
+    """
+    field = MEDIA_FIELD.format(acc_id=acc_id)
+    if field not in request.POST:
+        return existing
+    ids = []
+    for chunk in (request.POST.get(field, "") or "").split(","):
+        value = chunk.strip()
+        if not value or value in ids:
+            continue
+        try:
+            uuid.UUID(value)
+        except ValueError:
+            continue
+        ids.append(value)
+    return ids or None
+
+
+def own_media_assets(asset_ids, workspace):
+    """The assets behind ``asset_ids`` in list order, and the ids that did not resolve.
+
+    Shared library items count: the picker offers them, so the gate accepts them.
+    """
+    from apps.media_library.models import MediaAsset
+
+    found = {
+        str(asset.id): asset
+        for asset in MediaAsset.objects.for_workspace_with_shared(workspace.id, workspace.organization_id).filter(
+            id__in=asset_ids
+        )
+    }
+    assets = [found[asset_id] for asset_id in asset_ids if asset_id in found]
+    missing = [asset_id for asset_id in asset_ids if asset_id not in found]
+    return assets, missing
+
+
+def media_item(asset):
+    """One file as the panel and the picker describe it: what to show, plus the
+    four numbers ``instagram_specs`` judges. 0 still means "not measured"."""
+    url = ""
+    if asset.thumbnail:
+        url = asset.thumbnail.url
+    elif asset.file:
+        url = asset.file.url
+    return {
+        "id": str(asset.id),
+        "url": url,
+        "file_url": asset.file.url if asset.file else "",
+        "kind": "video" if asset.is_video else "image",
+        "filename": asset.filename,
+        "width": asset.width or 0,
+        "height": asset.height or 0,
+        "duration": asset.duration or 0,
+    }
+
+
+def own_media_preview(platform_post_list, workspace):
+    """``{account id: [media_item, ...]}`` for every Instagram PlatformPost that
+    carries its own media, so the composer can render the panel on edit."""
+    wanted = {}
+    for pp in platform_post_list:
+        if pp.social_account.platform not in INSTAGRAM_PLATFORMS:
+            continue
+        stored = pp.platform_specific_media
+        if isinstance(stored, list) and stored:
+            wanted[str(pp.social_account_id)] = [str(value) for value in stored if value]
+    if not wanted:
+        return {}
+
+    all_ids = sorted({asset_id for ids in wanted.values() for asset_id in ids})
+    assets, _missing = own_media_assets(all_ids, workspace)
+    by_id = {str(asset.id): asset for asset in assets}
+    return {
+        acc_id: [media_item(by_id[asset_id]) for asset_id in ids if asset_id in by_id] for acc_id, ids in wanted.items()
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -225,20 +321,31 @@ def instagram_placement_error(request, post, workspace, selected_ids, session_me
     from .models import PlatformPost
 
     stored = {}
+    stored_media = {}
     if not post._state.adding:
-        stored = {
-            str(pp.social_account_id): (pp.platform_extra or {})
-            for pp in PlatformPost.objects.filter(post=post, social_account__in=accounts)
-        }
+        for pp in PlatformPost.objects.filter(post=post, social_account__in=accounts):
+            stored[str(pp.social_account_id)] = pp.platform_extra or {}
+            stored_media[str(pp.social_account_id)] = pp.platform_specific_media
 
-    records = _media_records(post, workspace, session_media_ids)
-    kinds = [record["kind"] for record in records]
+    post_records = _media_records(post, workspace, session_media_ids)
     for account in accounts:
         acc_id = str(account.id)
         if f"ig_placement_{acc_id}" not in request.POST:
             # Panel not in this form: nothing was chosen here, so there is
             # nothing new to reject. Same reasoning as build_instagram_extra.
             continue
+        # An account with its own files is judged on those, not on the post's.
+        # A file that has since left the library is a stop in its own right:
+        # the publisher would fall back to the post's attachments and quietly
+        # publish something other than what was chosen.
+        records = post_records
+        own_ids = build_instagram_media(request, acc_id, stored_media.get(acc_id))
+        if own_ids:
+            assets, missing = own_media_assets(own_ids, workspace)
+            if missing:
+                return f"{account.account_name}: a file chosen for this account is no longer in the media library. Remove it from the account's media."
+            records = [_record(asset) for asset in assets]
+        kinds = [record["kind"] for record in records]
         extra = build_instagram_extra(request, acc_id, stored.get(acc_id))
         placement = extra.get("post_type")
         if not placement:

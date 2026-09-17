@@ -38,7 +38,10 @@ from .forms import ContentCategoryForm, PostForm
 from .instagram_extras import (
     INSTAGRAM_PLATFORMS,
     build_instagram_extra,
+    build_instagram_media,
     instagram_placement_error,
+    media_item,
+    own_media_preview,
 )
 from .models import (
     ContentCategory,
@@ -231,6 +234,7 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
             # TikTok above: a save that does not carry it must not wipe the
             # placement. See apps/composer/instagram_extras.py.
             pp.platform_extra = build_instagram_extra(request, acc_id, pp.platform_extra)
+            pp.platform_specific_media = build_instagram_media(request, acc_id, pp.platform_specific_media)
 
         pp.save()
 
@@ -605,6 +609,10 @@ def compose(request, workspace_id, post_id=None):
         cid = extra.get("cover_image_asset_id")
         if cid and cid in asset_url_map:
             extra["cover_image_url"] = asset_url_map[cid]
+    # Blue Monkey Media fork: an Instagram account's own files, for the panel.
+    if post is not None:
+        for acc_id, items in own_media_preview(platform_post_list, workspace).items():
+            platform_extras.setdefault(acc_id, {})["own_media"] = items
 
     context = {
         "workspace": workspace,
@@ -1341,6 +1349,32 @@ def thumbnail_picker(request, workspace_id):
     return render(
         request,
         "composer/partials/thumbnail_picker.html",
+        {"assets": assets, "workspace": workspace},
+    )
+
+
+@login_required
+@require_GET
+def account_media_picker(request, workspace_id):
+    """Modal picker for an Instagram account's own files (Blue Monkey Media fork).
+
+    Every media type, library plus shared items. Selection dispatches a
+    client-side event with the file's measurements; nothing is attached
+    server-side, the composer stores the choice on save.
+    """
+    workspace = _get_workspace(request, workspace_id)
+    from apps.media_library.models import MediaAsset
+
+    assets = list(
+        MediaAsset.objects.for_workspace_with_shared(workspace.id, workspace.organization_id).order_by("-created_at")[
+            :50
+        ]
+    )
+    for asset in assets:
+        asset.bmm_item_json = json.dumps(media_item(asset))
+    return render(
+        request,
+        "composer/partials/account_media_picker.html",
         {"assets": assets, "workspace": workspace},
     )
 

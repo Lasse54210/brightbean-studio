@@ -1,10 +1,27 @@
+from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 
 from apps.accounts.models import OAuthConnection
+from apps.accounts.signup_policy import signup_is_open
+
+
+class AccountAdapter(DefaultAccountAdapter):
+    """Email/password flow. Registration is by invitation unless
+    ``ACCOUNT_OPEN_SIGNUP`` says otherwise; see apps/accounts/signup_policy.py."""
+
+    def is_open_for_signup(self, request):
+        return signup_is_open(request)
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
     """Custom adapter that syncs Google social logins to OAuthConnection."""
+
+    def is_open_for_signup(self, request, sociallogin):
+        """A Google login by someone who has no account yet is a signup, and
+        it obeys the same gate as the email form. Existing users are
+        unaffected: allauth only asks this for accounts it would have to
+        create."""
+        return signup_is_open(request)
 
     def populate_user(self, request, sociallogin, data):
         """Set user.name from Google profile (custom User model has 'name', not first/last)."""

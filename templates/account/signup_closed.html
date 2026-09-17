@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Registration is by invitation · BrightBean Studio{% endblock %}
+
+{% block auth_content %}
+{% comment %}
+Shown by allauth when signing up is not allowed on this request, for the email
+form and for a Google login that would have to create an account. Blue Monkey
+Media fork: see apps/accounts/signup_policy.py for the rule.
+{% endcomment %}
+<div class="w-full max-w-md px-4">
+    <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-12 h-12 mb-4">
+            <img src="{% static 'img/brightbean-studio-logo.webp' %}" alt="BrightBean Studio logo" class="w-12 h-12 object-contain">
+        </div>
+        <span class="block text-[11px] font-semibold uppercase tracking-widest mb-2" style="color: #93a240;">BrightBean · Studio</span>
+        <h1 class="text-2xl font-bold tracking-tight" style="color: var(--text-primary);">
+            Registration is by invitation
+        </h1>
+        <p class="text-sm mt-3" style="color: var(--text-secondary);">
+            This instance does not take open sign-ups. Ask an administrator of your
+            organisation to invite you under <strong>Team members</strong>; the link in
+            that email creates your account and puts you in the right team straight away.
+        </p>
+        <p class="text-sm mt-4" style="color: var(--text-secondary);">
+            Already have an account?
+            <a href="{% url 'account_login' %}" class="font-semibold hover:underline" style="color: var(--primary);">Log in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

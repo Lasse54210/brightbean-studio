@@ -9,6 +9,11 @@ unreachable from the composer.
 New file: the fork keeps its own markup out of compose.html, which includes
 this once inside the `x-for accId in selectedAccounts` loop.
 
+Increment 3 added "Media for this account": a per-account file list stored as
+PlatformPost.platform_specific_media (form field `ig_media_ids_<acc>`), picked
+in _instagram_media_modal.html. When set, every check in this panel judges
+those files instead of the post's, and so does the server.
+
 From the enclosing scope: accId, charLimits, platformExtras, selectedAccounts,
 mediaKinds, hasVideoAttached, tiktokCoverPreview, openFramePicker,
 clearTiktokCover, formatTimecode, platformIconSvg. From outside it, the
@@ -69,12 +74,42 @@ panel said nothing, keep what is stored".
                  this.clearTiktokCover(this.accId);
              }
          },
+         /* This account's own files (increment 3). Stored on the PlatformPost as
+            platform_specific_media; the modal in _instagram_media_modal.html
+            appends to this list, the buttons below reorder and remove. When it
+            is empty the account publishes the post's attachments as before. */
+         get igOwnMedia() {
+             return this.platformExtras[this.accId]?.own_media || [];
+         },
+         get igOwnMediaIds() {
+             return this.igOwnMedia.map(m => m.id).join(',');
+         },
+         igRemoveOwnMedia(id) {
+             if (! this.platformExtras[this.accId]) return;
+             this.platformExtras[this.accId].own_media = this.igOwnMedia.filter(m => m.id !== id);
+         },
+         igMoveOwnMedia(id, delta) {
+             const list = [...this.igOwnMedia];
+             const from = list.findIndex(m => m.id === id);
+             const to = from + delta;
+             if (from < 0 || to < 0 || to >= list.length) return;
+             list.splice(to, 0, list.splice(from, 1)[0]);
+             this.platformExtras[this.accId].own_media = list;
+         },
+         /* What this account will actually publish: its own files if it has
+            any, otherwise the post's. Every check below reads this, so a Reel
+            greyed out on the post's image lights up once a video is picked
+            for the account. */
+         get igKinds() {
+             const own = this.igOwnMedia;
+             return own.length ? own.map(m => m.kind) : (this.mediaKinds || []);
+         },
          /* Mirrors placement_media_error() in apps/composer/instagram_extras.py.
             Same rules, same wording: the server rejects the save, this greys the
             option out first so you find out before you schedule. */
          igReason(placement) {
              if (placement === 'auto') return '';
-             const kinds = this.mediaKinds || [];
+             const kinds = this.igKinds;
              if (! kinds.length) return 'Attach media before choosing an Instagram placement.';
              if (placement === 'reel' && kinds[0] !== 'video') return 'A Reel needs a video. Attach one or pick another placement.';
              if (placement === 'image' && kinds[0] !== 'image') return 'A feed image needs an image. Instagram publishes a lone video as a Reel.';
@@ -90,7 +125,11 @@ panel said nothing, keep what is stored".
          igFindings(placement) {
              const specs = window.bmmInstagramSpecs;
              if (! specs) return [];
-             const items = (this.$store && this.$store.bmmMedia && this.$store.bmmMedia.items) || [];
+             /* Own files carry the server's measurements (0 = not yet
+                measured, skipped by the specs); the post's files are measured
+                in the browser by the bmmMedia store. */
+             const own = this.igOwnMedia;
+             const items = own.length ? own : ((this.$store && this.$store.bmmMedia && this.$store.bmmMedia.items) || []);
              return specs.checkPost(items, placement);
          },
          igBlocked(placement) {
@@ -110,7 +149,7 @@ panel said nothing, keep what is stored".
              /* Only a carousel publishes more than one file. The provider takes
                 media_urls[0] for everything else and drops the rest without a
                 word, so say it here, where it can still be changed. */
-             const extra = (this.mediaKinds || []).length - 1;
+             const extra = this.igKinds.length - 1;
              if (this.igPlacement !== 'carousel' && extra > 0) {
                  const label = { reel: 'a Reel', story: 'a Story', image: 'a feed image' }[this.igPlacement] || 'this placement';
                  warnings.push('Only the first file is published as ' + label + '. The other ' +
@@ -168,6 +207,64 @@ panel said nothing, keep what is stored".
                 <svg class="w-3.5 h-3.5 flex-shrink-0 mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
                 <span x-text="warning"></span>
             </p>
+        </template>
+    </div>
+
+    <!-- Own files for this account (increment 3). Empty means: publish the
+         post's attachments, exactly as before. The hidden field is always in
+         the form, so an emptied list really clears the stored one; a form
+         without the panel leaves it alone (see build_instagram_media). -->
+    <div>
+        <input type="hidden" :name="'ig_media_ids_' + accId" :value="igOwnMediaIds">
+        <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider">
+                Media for this account
+            </label>
+            <button type="button"
+                    @click="$dispatch('bmm-open-account-media', { accId: accId })"
+                    class="text-xs font-medium px-2.5 py-1 rounded-lg border border-stone-200 text-stone-700 hover:border-orange-400 hover:text-orange-600 transition-all cursor-pointer">
+                <span x-text="igOwnMedia.length ? 'Add file' : 'Pick own files'"></span>
+            </button>
+        </div>
+        <p x-show="!igOwnMedia.length" class="text-[11px] text-stone-400">
+            Publishes the post's attachments. Pick files here to give this account its own cut, for instance a 9:16 for a Story or a 4:5 for the feed.
+        </p>
+        <template x-if="igOwnMedia.length">
+            <div class="space-y-1.5">
+                <template x-for="(m, i) in igOwnMedia" :key="'ig-own-' + accId + '-' + m.id">
+                    <div class="flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-2 py-1.5">
+                        <template x-if="m.kind === 'video' && !m.url && m.file_url">
+                            <video :src="m.file_url + '#t=0.5'" class="w-10 h-10 rounded object-cover bg-stone-200 flex-shrink-0" muted preload="metadata"></video>
+                        </template>
+                        <template x-if="m.url">
+                            <img :src="m.url" class="w-10 h-10 rounded object-cover bg-stone-200 flex-shrink-0" alt="">
+                        </template>
+                        <template x-if="!m.url && !(m.kind === 'video' && m.file_url)">
+                            <div class="w-10 h-10 rounded bg-stone-200 flex-shrink-0"></div>
+                        </template>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs font-medium text-stone-700 truncate" x-text="m.filename"></p>
+                            <p class="text-[11px] text-stone-400 tabular-nums"
+                               x-text="(m.kind === 'video' ? 'Video' : 'Image') + (m.width && m.height ? ' · ' + m.width + 'x' + m.height : '') + (m.duration ? ' · ' + Math.round(m.duration) + ' s' : '')"></p>
+                        </div>
+                        <div class="flex items-center gap-1 flex-shrink-0">
+                            <button type="button" @click="igMoveOwnMedia(m.id, -1)" :disabled="i === 0" title="Move up"
+                                    class="w-6 h-6 rounded text-stone-400 hover:text-stone-700 hover:bg-stone-200 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                            </button>
+                            <button type="button" @click="igMoveOwnMedia(m.id, 1)" :disabled="i === igOwnMedia.length - 1" title="Move down"
+                                    class="w-6 h-6 rounded text-stone-400 hover:text-stone-700 hover:bg-stone-200 disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                            </button>
+                            <button type="button" @click="igRemoveOwnMedia(m.id)" title="Remove from this account"
+                                    class="w-6 h-6 rounded text-stone-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+                <p class="text-[11px] text-stone-400">Only this account publishes these; the other accounts keep the post's attachments.</p>
+            </div>
         </template>
     </div>
 

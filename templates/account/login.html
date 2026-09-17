@@ -119,10 +119,13 @@
         {% endif %}
     </div>
 
-    <!-- Footer link -->
+    <!-- Footer link. Hidden when registration is closed: a link to a page
+         that only says "no" is worse than no link. -->
+    {% if signup_open %}
     <p class="text-center text-sm mt-6" style="color: var(--text-secondary);">
         Don't have an account?
         <a href="{{ signup_url }}" class="font-semibold hover:underline" style="color: var(--primary);">Sign up</a>
     </p>
+    {% endif %}
 </div>
 {% endblock %}

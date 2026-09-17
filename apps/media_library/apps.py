@@ -17,7 +17,9 @@ class MediaLibraryConfig(AppConfig):
         from apps.media_library.tasks import (
             ORPHANED_MEDIA_SWEEP_INTERVAL_SECONDS,
             PENDING_UPLOAD_SWEEP_INTERVAL_SECONDS,
+            STALE_MULTIPART_SWEEP_INTERVAL_SECONDS,
             run_orphaned_media_sweep,
+            run_stale_multipart_sweep,
             sweep_pending_uploads,
         )
 
@@ -32,4 +34,10 @@ class MediaLibraryConfig(AppConfig):
             run_orphaned_media_sweep,
             repeat=ORPHANED_MEDIA_SWEEP_INTERVAL_SECONDS,
             verbose_name="run_orphaned_media_sweep",
+        )
+        # Blue Monkey Media fork: abandoned multipart uploads (daily).
+        register_recurring_task(
+            run_stale_multipart_sweep,
+            repeat=STALE_MULTIPART_SWEEP_INTERVAL_SECONDS,
+            verbose_name="run_stale_multipart_sweep",
         )
