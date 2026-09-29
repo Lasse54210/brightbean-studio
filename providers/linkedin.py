@@ -254,10 +254,13 @@ class LinkedInProvider(SocialProvider):
             return self._publish_poll_post(access_token, author, content)
         return self._publish_text_post(access_token, author, content)
 
-    def _build_post_body(self, author: str, commentary: str) -> dict:
+    def _build_post_body(self, author: str, commentary: str, mentions: list | None = None) -> dict:
+        # BMM fork: tagged company pages, see providers/linkedin_mentions.py.
+        from .linkedin_mentions import apply_mentions
+
         return {
             "author": author,
-            "commentary": escape_commentary(commentary),
+            "commentary": apply_mentions(escape_commentary(commentary), mentions),
             "visibility": "PUBLIC",
             "distribution": {
                 "feedDistribution": "MAIN_FEED",
@@ -268,7 +271,7 @@ class LinkedInProvider(SocialProvider):
         }
 
     def _publish_text_post(self, access_token: str, author: str, content: PublishContent) -> PublishResult:
-        body = self._build_post_body(author, content.text)
+        body = self._build_post_body(author, content.text, content.extra.get("mentions"))
 
         if content.link_url:
             body["content"] = {
@@ -323,7 +326,7 @@ class LinkedInProvider(SocialProvider):
         self._upload_binary(access_token, upload_url, image_source)
 
         # Step 3: create post with image
-        body = self._build_post_body(author, content.text)
+        body = self._build_post_body(author, content.text, content.extra.get("mentions"))
         body["content"] = {
             "media": {
                 "id": image_urn,
@@ -424,7 +427,7 @@ class LinkedInProvider(SocialProvider):
                     os.unlink(video_path)
 
         # Step 5: create post with video
-        body = self._build_post_body(author, content.text)
+        body = self._build_post_body(author, content.text, content.extra.get("mentions"))
         body["content"] = {
             "media": {
                 "id": video_urn,
@@ -446,7 +449,7 @@ class LinkedInProvider(SocialProvider):
         )
 
     def _publish_article_post(self, access_token: str, author: str, content: PublishContent) -> PublishResult:
-        body = self._build_post_body(author, content.text)
+        body = self._build_post_body(author, content.text, content.extra.get("mentions"))
         body["content"] = {
             "article": {
                 "source": content.link_url or "",
@@ -479,7 +482,7 @@ class LinkedInProvider(SocialProvider):
                 platform=self.platform_name,
             )
 
-        body = self._build_post_body(author, content.text)
+        body = self._build_post_body(author, content.text, content.extra.get("mentions"))
         body["content"] = {
             "poll": {
                 "question": poll_question,

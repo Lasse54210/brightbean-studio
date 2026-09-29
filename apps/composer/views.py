@@ -44,6 +44,7 @@ from .instagram_extras import (
     media_item,
     own_media_preview,
 )
+from .linkedin_mentions import LINKEDIN_MENTION_PLATFORMS, build_linkedin_extra, linkedin_mention_error
 from .models import (
     ContentCategory,
     Feed,
@@ -265,6 +266,10 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
             # placement. See apps/composer/instagram_extras.py.
             pp.platform_extra = build_instagram_extra(request, acc_id, pp.platform_extra)
             pp.platform_specific_media = build_instagram_media(request, acc_id, pp.platform_specific_media)
+
+        elif account.platform in LINKEDIN_MENTION_PLATFORMS:
+            # Tagged company pages. See apps/composer/linkedin_mentions.py.
+            pp.platform_extra = build_linkedin_extra(request, acc_id, pp.platform_extra)
 
         pp.save()
 
@@ -840,6 +845,12 @@ def save_post(request, workspace_id, post_id=None):
     )
     if ig_error is not None:
         return JsonResponse({"errors": {"instagram_placement": ig_error}}, status=400)
+
+    li_error = linkedin_mention_error(
+        request, workspace, _parse_selected_account_ids(request.POST.get("selected_accounts", ""))
+    )
+    if li_error is not None:
+        return JsonResponse({"errors": {"linkedin_mentions": li_error}}, status=400)
 
     # Handle action — note that Post itself no longer carries an editorial
     # status: every transition below operates on the PlatformPost children,

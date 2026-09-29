@@ -237,3 +237,117 @@ def test_a_presigned_video_in_a_carousel_becomes_a_video_child():
     assert first_child["video_url"] == PRESIGNED_VIDEO
     assert "media_type" not in second_child
     assert second_child["image_url"].endswith("deadbeef")
+
+
+# ---------------------------------------------------------------------------
+# Tagging people (2026-09-29)
+# ---------------------------------------------------------------------------
+
+
+def test_user_tags_on_a_feed_image_get_coordinates():
+    payload = {"image_url": "https://example.com/a.jpg"}
+
+    apply_placement(payload, PublishContent(extra={"user_tags": ["anna", "piet"]}))
+
+    # A feed image requires x/y; spread so the tags do not stack on one point.
+    assert payload["user_tags"] == [
+        {"username": "anna", "x": 0.333, "y": 0.5},
+        {"username": "piet", "x": 0.667, "y": 0.5},
+    ]
+
+
+def test_user_tags_on_a_reel_or_story_are_usernames_only():
+    reel = {"media_type": "REELS"}
+    story = {"media_type": "STORIES"}
+    content = PublishContent(extra={"user_tags": ["anna"]})
+
+    apply_placement(reel, content)
+    apply_placement(story, content)
+
+    assert reel["user_tags"] == [{"username": "anna"}]
+    assert story["user_tags"] == [{"username": "anna"}]
+
+
+def test_user_tags_never_land_on_the_carousel_container():
+    carousel = {"media_type": "CAROUSEL"}
+
+    apply_placement(carousel, PublishContent(extra={"user_tags": ["anna"]}))
+
+    assert "user_tags" not in carousel
+
+
+def test_collaborators_are_dropped_on_a_story():
+    story = {"media_type": "STORIES"}
+
+    apply_placement(story, PublishContent(extra={"collaborators": ["anna"]}))
+
+    assert "collaborators" not in story
+
+
+def test_user_tags_are_capped_at_twenty():
+    payload = {}
+
+    apply_placement(payload, PublishContent(extra={"user_tags": [f"user{i}" for i in range(25)]}))
+
+    assert len(payload["user_tags"]) == 20
+
+
+def test_carousel_tags_go_on_the_first_child_only():
+    provider = InstagramProvider({"client_id": "id", "client_secret": "secret"})
+    provider._request = MagicMock(
+        side_effect=[
+            _resp({"id": "child-1"}),
+            _resp({"status_code": "FINISHED"}),
+            _resp({"id": "child-2"}),
+            _resp({"status_code": "FINISHED"}),
+            _resp({"id": "carousel-1"}),
+            _resp({"status_code": "FINISHED"}),
+            _resp({"id": "media-1"}),
+        ]
+    )
+
+    provider.publish_post(
+        "token",
+        PublishContent(
+            text="caption",
+            media_urls=["https://example.com/a.jpg", "https://example.com/b.jpg"],
+            post_type=PostType.CAROUSEL,
+            extra={"ig_user_id": "ig-1", "user_tags": ["anna"], "collaborators": ["piet"]},
+        ),
+    )
+
+    first_child = provider._request.call_args_list[0].kwargs["json"]
+    second_child = provider._request.call_args_list[2].kwargs["json"]
+    carousel = provider._request.call_args_list[4].kwargs["json"]
+    assert first_child["user_tags"] == [{"username": "anna", "x": 0.5, "y": 0.5}]
+    assert "user_tags" not in second_child
+    assert "user_tags" not in carousel
+    assert carousel["collaborators"] == ["piet"]
+
+
+def test_instagram_login_carousel_tags_the_first_child():
+    provider = InstagramLoginProvider({"client_id": "id", "client_secret": "secret"})
+    provider._request = MagicMock(
+        side_effect=[
+            _resp({"id": "child-1"}),
+            _resp({"status_code": "FINISHED"}),
+            _resp({"id": "child-2"}),
+            _resp({"status_code": "FINISHED"}),
+            _resp({"id": "carousel-1"}),
+            _resp({"status_code": "FINISHED"}),
+            _resp({"id": "media-1"}),
+        ]
+    )
+
+    provider.publish_post(
+        "token",
+        PublishContent(
+            media_urls=["https://example.com/v.mp4", "https://example.com/b.jpg"],
+            post_type=PostType.CAROUSEL,
+            extra={"user_tags": ["anna"]},
+        ),
+    )
+
+    first_child = provider._request.call_args_list[0].kwargs["json"]
+    # A video child has no point to tag, so the username goes alone.
+    assert first_child["user_tags"] == [{"username": "anna"}]

@@ -30,8 +30,55 @@ _ALLOWED_ON = {
 # Keys the composer never sends today. They are here because the allowlist is
 # the documentation of what may be sent, and a later UI should not have to
 # rediscover which placement each one belongs to. See "Wat we niet doen" in
-# bmm/instagram-plaatsingen-plan.md.
-NO_UI_YET = ("audio_name", "collaborators", "user_tags", "location_id", "alt_text")
+# bmm/instagram-plaatsingen-plan.md. user_tags and collaborators got their UI
+# on 2026-09-29 (see "Taggen" in BMM-FORK.md).
+NO_UI_YET = ("audio_name", "location_id", "alt_text")
+
+# Instagram takes at most 20 people tagged on one file.
+MAX_USER_TAGS = 20
+
+
+def user_tags_payload(usernames, media_type):
+    """The ``user_tags`` value for one container.
+
+    The composer stores bare usernames, because where a tag may sit depends on
+    the placement, and that is only known here. A feed image (and an image in a
+    carousel) requires ``x``/``y`` between 0 and 1; a Story makes them optional
+    and a Reel or a video has no point to tag, so those get the username only.
+    The tags are spread along the middle of the image: nobody sees where a tag
+    sits until they tap the photo, and stacking them on one point hides all but
+    the top one.
+
+    Entries that already are dicts pass through untouched.
+    """
+    names = [name for name in (usernames or []) if name][:MAX_USER_TAGS]
+    tags = []
+    for index, name in enumerate(names):
+        if isinstance(name, dict):
+            tags.append(name)
+            continue
+        tag = {"username": name}
+        if media_type == "":
+            tag["x"] = round((index + 1) / (len(names) + 1), 3)
+            tag["y"] = 0.5
+        tags.append(tag)
+    return tags
+
+
+def apply_carousel_child_tags(child_payload, content, index):
+    """Tag people on the first file of a carousel.
+
+    A carousel container takes no ``user_tags``; its children do. Tagging every
+    slide would put the same people on each one, so the tags go on the first,
+    which is also the one shown in the feed.
+    """
+    if index != 0:
+        return child_payload
+    usernames = (getattr(content, "extra", None) or {}).get("user_tags")
+    tags = user_tags_payload(usernames, child_payload.get("media_type", ""))
+    if tags:
+        child_payload["user_tags"] = tags
+    return child_payload
 
 
 def apply_placement(payload, content):
@@ -60,6 +107,8 @@ def apply_placement(payload, content):
         # so booleans are passed through as-is rather than treated as empty.
         if value == "" or value == []:
             continue
+        if key == "user_tags":
+            value = user_tags_payload(value, media_type)
         payload[key] = value
 
     return payload

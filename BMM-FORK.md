@@ -294,8 +294,8 @@ Twee dingen die bewust hergebruikt zijn in plaats van nagebouwd:
 
 ### Wat er niet in zit
 
-`user_tags`, `collaborators`, `location_id`, `audio_name` en `alt_text` staan wel
-in de allowlist maar hebben geen UI. De waarschuwingen kijken naar beeldverhouding
+`location_id`, `audio_name` en `alt_text` staan wel in de allowlist maar hebben
+geen UI (`user_tags` en `collaborators` sinds 2026-09-29 wel, zie "Taggen"). De waarschuwingen kijken naar beeldverhouding
 en duur en niet naar bestandsgrootte, codec of framerate; die staan wel in de
 referentie maar niet in `instagram_specs.py`. Feed-video als eigen plaatsing bestaat niet:
 Instagram publiceert een losse video altijd als Reel. Herkadreren van video's
@@ -521,6 +521,80 @@ account mee, dus de provider leidt de auteur af uit het profiel achter het
 token (`urn:li:person:...`) terwijl publiceren wel naar een
 `urn:li:organization:...` kan schrijven. Reacties op een bedrijfspagina komen
 daardoor helemaal niet binnen, en dat is een ander gat dan dit.
+
+## Taggen: mensen op Instagram, bedrijven op LinkedIn
+
+Gevraagd door een klantteam (september 2026): bij elke post
+moeten mensen getagd worden. Wat de API's toestaan verschilt per platform, en
+dat bepaalt wat hier kan:
+
+| Platform | Wat kan | Wat niet |
+|---|---|---|
+| Instagram | mensen taggen in de foto, Reel of Story (`user_tags`), plus max. 3 collaborators | privé-accounts; collaborators op een Story |
+| LinkedIn (bedrijfspagina) | bedrijfspagina's, showcase-pagina's en scholen taggen | **personen**: daarvoor is een member-URN nodig en geen API vindt die voor iemand anders |
+| Facebook | niets | personen taggen via de API bestaat niet meer |
+
+Een `@naam` intypen in de Instagram-caption werkte al (Instagram maakt daar zelf
+een link van). Op LinkedIn werkte het niet: `escape_commentary` maakt van elke `@`
+een `\@`, dus het kwam als platte tekst door.
+
+**Instagram.** In het Instagram-paneel staan twee velden, **Tag people** en
+**Collaborators**. Je typt namen met of zonder `@`, gescheiden door komma's, of
+plakt een profiellink. Opgeslagen als kale gebruikersnamen in
+`platform_extra["user_tags"]` en `["collaborators"]`;
+`providers/instagram_placement.py` bepaalt pas bij het publiceren hoe ze mee
+moeten, want dat hangt van de plaatsing af:
+
+- een feedafbeelding eist `x`/`y`; de tags komen verspreid over het midden te
+  staan (niemand ziet waar tot hij op de foto tikt, en op één punt verbergen ze
+  elkaar);
+- een Reel, Story of video krijgt alleen de gebruikersnaam;
+- een carrousel neemt geen `user_tags` op de container, dus de tags gaan op het
+  eerste bestand;
+- collaborators vallen weg op een Story (de allowlist deed dat al).
+
+Een onbekende of privé-gebruikersnaam laat Instagram de hele container weigeren.
+De composer weigert daarom alles wat geen gebruikersnaam kan zijn, meer dan 20
+tags of meer dan 3 collaborators; of een account bestaat en openbaar is, kunnen
+we vooraf niet zien. Dat staat onder het veld.
+
+**LinkedIn.** Voor een bedrijfspagina-account staat een paneel **Tag companies**.
+Je plakt de link van een pagina (`linkedin.com/company/...`, `/showcase/`,
+`/school/`, of de admin-link met het nummer), de server vraagt LinkedIn welke
+pagina dat is (Organization Lookup, via `rw_organization_admin` die de
+Company Page-provider al had) en bewaart LinkedIns eigen naam plus de URN in
+`platform_extra["mentions"]`. Bij het publiceren wordt die naam in de tekst de
+tag: `@[Naam](urn:li:organization:123)`, de rest blijft ge-escaped.
+
+LinkedIn linkt een tag alleen als de tekst exact de paginanaam is, hoofdletters
+inbegrepen; anders publiceert hij hem als platte tekst. Daarom:
+
+- we voegen nooit woorden toe aan de tekst; de tag komt op de plek waar de naam
+  al staat (hele woorden, eerste keer, een getypte `@` ervoor hoort erbij);
+- het paneel zegt het als de naam niet in de tekst staat, en `save_post` weigert
+  dan ook (`errors.linkedin_mentions`), met de eigen tekst van het account als
+  die er is;
+- staat de naam er bij het publiceren toch niet (tekst later via een andere weg
+  aangepast), dan gaat de post zonder die tag.
+
+De tekenteller telt de tag niet mee (een URN is zo'n 30 tekens); bij 3000 tekens
+limiet is dat alleen aan de rand een punt.
+
+### Voetafdruk
+
+| Bestand | Wat |
+|---|---|
+| `providers/linkedin_mentions.py`, `tests/providers/test_linkedin_mentions.py` | **nieuw** |
+| `apps/composer/linkedin_mentions.py`, `apps/composer/tests/test_social_tags.py` | **nieuw**, inclusief de lookup-view |
+| `templates/composer/partials/_linkedin_mentions.html` | **nieuw** |
+| `providers/linkedin.py` | `_build_post_body` krijgt `mentions` en roept `apply_mentions`; de vijf aanroepen geven `content.extra.get("mentions")` mee |
+| `providers/instagram.py`, `instagram_login.py` | één import en één regel in de carrousellus |
+| `providers/instagram_placement.py`, `apps/composer/instagram_extras.py`, `_instagram_settings.html`, `tests/providers/test_instagram_placement.py` | eigen bestanden van de fork, uitgebreid |
+| `apps/composer/views.py` | één import, één `elif` in `_sync_platform_posts`, vijf regels validatie in `save_post` |
+| `apps/composer/urls.py` | één import, één route |
+| `templates/composer/compose.html` | één include in een `x-for` |
+
+**Geen migratie**: alles staat in het bestaande `platform_extra`.
 
 ## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
 

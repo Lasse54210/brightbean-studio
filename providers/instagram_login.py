@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 
 from .base import SocialProvider
 from .exceptions import APIError, OAuthError, ProviderError, PublishError
-from .instagram_placement import apply_placement
+from .instagram_placement import apply_carousel_child_tags, apply_placement
 from .meta_comments import (
     fetch_instagram_comments,
     find_own_instagram_comment,
@@ -355,6 +355,8 @@ class InstagramLoginProvider(SocialProvider):
                 child_payload["video_url"] = url
             else:
                 child_payload["image_url"] = url
+
+            apply_carousel_child_tags(child_payload, content, index)
 
             child_id = self._create_container(access_token, child_payload)
             self._wait_for_container(access_token, child_id)

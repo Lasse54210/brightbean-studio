@@ -12,7 +12,10 @@ automatic derivation (one video -> Reel, several files -> carousel, an image ->
 feed image) was the only thing you could get, and a Story was unreachable.
 """
 
+import re
 import uuid
+
+from providers.instagram_placement import MAX_USER_TAGS
 
 from .instagram_specs import CAROUSEL_MAX_ITEMS, blocking_message, check_media
 
@@ -83,7 +86,76 @@ def build_instagram_extra(request, acc_id, existing=None):
             if offset >= 0:
                 extra["thumb_offset"] = offset
 
+    # People tagged in the file, and collaborators. Stored as bare usernames on
+    # every placement; providers/instagram_placement.py works out per container
+    # whether and how they may be sent.
+    for key, field in TAG_FIELDS.items():
+        name = field.format(acc_id=acc_id)
+        if name in request.POST:
+            usernames, _bad = parse_usernames(request.POST.get(name, ""))
+        else:
+            usernames = existing.get(key) or []
+        if usernames:
+            extra[key] = usernames
+
     return extra
+
+
+# ---------------------------------------------------------------------------
+# Tagging people
+# ---------------------------------------------------------------------------
+
+# The two tag fields in the panel, as platform_extra key -> form field.
+TAG_FIELDS = {
+    "user_tags": "ig_user_tags_{acc_id}",
+    "collaborators": "ig_collaborators_{acc_id}",
+}
+
+# Instagram allows three collaborators on one post.
+MAX_COLLABORATORS = 3
+
+# Instagram usernames: letters, digits, dots and underscores, at most 30.
+_USERNAME = re.compile(r"[a-z0-9._]{1,30}")
+
+
+def parse_usernames(raw):
+    """``(usernames, rejected)`` from what was typed in a tag field.
+
+    Takes names separated by commas, spaces or new lines, with or without the
+    "@", and also a pasted profile link. Lower-cased, because Instagram
+    usernames are, and deduplicated in the order typed.
+    """
+    usernames = []
+    rejected = []
+    for chunk in re.split(r"[\s,;]+", raw or ""):
+        value = chunk.strip()
+        if "instagram.com/" in value:
+            value = value.split("instagram.com/", 1)[1].split("/")[0].split("?")[0]
+        value = value.lstrip("@").lower()
+        if not value:
+            continue
+        if not _USERNAME.fullmatch(value):
+            rejected.append(chunk.strip())
+            continue
+        if value not in usernames:
+            usernames.append(value)
+    return usernames, rejected
+
+
+def instagram_tag_error(request, acc_id):
+    """Why the tag fields of one account cannot be saved, or None."""
+    tags, bad_tags = parse_usernames(request.POST.get(TAG_FIELDS["user_tags"].format(acc_id=acc_id), ""))
+    collaborators, bad_collaborators = parse_usernames(
+        request.POST.get(TAG_FIELDS["collaborators"].format(acc_id=acc_id), "")
+    )
+    bad = bad_tags + bad_collaborators
+    if bad:
+        return f"'{bad[0]}' is not an Instagram username. Use letters, digits, dots and underscores only."
+    if len(tags) > MAX_USER_TAGS:
+        return f"Instagram tags at most {MAX_USER_TAGS} people on one post. Remove {len(tags) - MAX_USER_TAGS}."
+    if len(collaborators) > MAX_COLLABORATORS:
+        return f"Instagram allows at most {MAX_COLLABORATORS} collaborators. Remove {len(collaborators) - MAX_COLLABORATORS}."
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +406,9 @@ def instagram_placement_error(request, post, workspace, selected_ids, session_me
             # Panel not in this form: nothing was chosen here, so there is
             # nothing new to reject. Same reasoning as build_instagram_extra.
             continue
+        tag_message = instagram_tag_error(request, acc_id)
+        if tag_message:
+            return f"{account.account_name}: {tag_message}"
         # An account with its own files is judged on those, not on the post's.
         # A file that has since left the library is a stop in its own right:
         # the publisher would fall back to the post's attachments and quietly

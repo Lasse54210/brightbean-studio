@@ -364,9 +364,10 @@ aangeraakt, omdat de browser de afmetingen zelf meet in plaats van ze uit
 
 ## Wat we niet doen
 
-- `user_tags`, `collaborators`, `location_id`, `audio_name` en `alt_text`. Ze
-  staan in `providers/instagram_placement.py` als allowlist, maar er komt geen UI
-  voor. Dat is een aparte keuze als iemand het nodig heeft.
+- `location_id`, `audio_name` en `alt_text`. Ze staan in
+  `providers/instagram_placement.py` als allowlist, maar er komt geen UI voor.
+  Dat is een aparte keuze als iemand het nodig heeft. (`user_tags` en
+  `collaborators` kregen die UI op 2026-09-29; zie "Taggen" in `BMM-FORK.md`.)
 - Feed-video als eigen plaatsing. Instagram publiceert een losse video altijd als
   Reel; de code doet dat al bewust (`providers/instagram.py:313-319`).
 - Herkadreren van afbeeldingen. Cropper.js doet dat al.

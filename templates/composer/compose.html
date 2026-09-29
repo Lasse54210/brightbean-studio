@@ -1129,6 +1129,11 @@
                 </template>
                 {% include "composer/partials/_instagram_media_modal.html" %}
 
+                <!-- LinkedIn company tags (Blue Monkey Media fork) -->
+                <template x-for="accId in selectedAccounts" :key="'li-mentions-' + accId">
+                    {% include "composer/partials/_linkedin_mentions.html" %}
+                </template>
+
                 <!-- Override toggle buttons -->
                 <div class="flex flex-wrap gap-1.5" x-show="selectedAccounts.length > 0">
                     <template x-for="accId in selectedAccounts" :key="'toggle-' + accId">

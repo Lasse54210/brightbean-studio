@@ -268,6 +268,33 @@ panel said nothing, keep what is stored".
         </template>
     </div>
 
+    <!-- Tagging (2026-09-29). Bare usernames; the provider decides per
+         container how to send them (providers/instagram_placement.py). Both
+         fields are always in the form, so emptying one really clears it. -->
+    <div>
+        <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5"
+               :for="'ig-user-tags-' + accId">Tag people</label>
+        <input type="text" :id="'ig-user-tags-' + accId" :name="'ig_user_tags_' + accId"
+               x-init="$el.value = (platformExtras[accId]?.user_tags || []).map(n => '@' + n).join(', ')"
+               placeholder="@username, @another"
+               autocomplete="off" spellcheck="false"
+               class="w-full text-sm px-3 py-2 rounded-lg border border-stone-200 bg-white outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-all">
+        <p class="text-[11px] text-stone-400 mt-1"
+           x-text="igPlacement === 'carousel'
+               ? 'Tagged on the first file of the carousel. Public accounts only; an unknown username makes Instagram refuse the post.'
+               : 'Tagged in the photo or video. Public accounts only; an unknown username makes Instagram refuse the post.'"></p>
+    </div>
+    <div x-show="igPlacement !== 'story'">
+        <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5"
+               :for="'ig-collaborators-' + accId">Collaborators</label>
+        <input type="text" :id="'ig-collaborators-' + accId" :name="'ig_collaborators_' + accId"
+               x-init="$el.value = (platformExtras[accId]?.collaborators || []).map(n => '@' + n).join(', ')"
+               placeholder="@username (up to 3)"
+               autocomplete="off" spellcheck="false"
+               class="w-full text-sm px-3 py-2 rounded-lg border border-stone-200 bg-white outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-all">
+        <p class="text-[11px] text-stone-400 mt-1">Invited to co-author the post. Once they accept, it shows on their profile too. Not on a Story.</p>
+    </div>
+
     <!-- share_to_feed is a Reels-only parameter; on anything else Instagram
          rejects the container, so the toggle only exists here. -->
     <template x-if="igPlacement === 'reel'">
