@@ -29,6 +29,18 @@ def test_share_to_feed_and_thumb_offset_land_on_a_reel():
     assert payload["thumb_offset"] == 2500
 
 
+def test_cover_url_lands_on_a_reel_and_nowhere_else():
+    cover = "https://s3.example/brightbean-media/instagram-covers/x.jpg"
+    reel = {"media_type": "REELS"}
+    story = {"media_type": "STORIES"}
+
+    apply_placement(reel, PublishContent(extra={"cover_url": cover}))
+    apply_placement(story, PublishContent(extra={"cover_url": cover}))
+
+    assert reel["cover_url"] == cover
+    assert "cover_url" not in story
+
+
 def test_share_to_feed_false_is_kept():
     # False is the whole point of the toggle (keep the Reel out of the grid),
     # so it must not be dropped as "empty".

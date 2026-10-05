@@ -18,6 +18,7 @@ import uuid
 from providers.instagram_placement import MAX_USER_TAGS
 
 from .instagram_specs import CAROUSEL_MAX_ITEMS, blocking_message, check_media
+from .video_cover import INSTAGRAM_FIELD, cover_error, parse_cover_asset_id
 
 # The placements you can pick per account. Keys are PostType values, because
 # that is what the engine reads back; anything else is silently ignored there,
@@ -85,6 +86,14 @@ def build_instagram_extra(request, acc_id, existing=None):
                 offset = -1
             if offset >= 0:
                 extra["thumb_offset"] = offset
+        # Or an image of its own: a MediaAsset id, which the publisher turns
+        # into ``cover_url`` (apps/publisher/cover_image.py). Instagram
+        # takes the image over the frame when both are sent, so both may be
+        # stored. Same keep-or-drop rule as the frame: an empty field is "no
+        # image", because the field only renders together with the frame's.
+        cover_asset_id = parse_cover_asset_id(request.POST.get(INSTAGRAM_FIELD.format(acc_id=acc_id), ""))
+        if cover_asset_id:
+            extra["cover_asset_id"] = cover_asset_id
 
     # People tagged in the file, and collaborators. Stored as bare usernames on
     # every placement; providers/instagram_placement.py works out per container
@@ -430,4 +439,8 @@ def instagram_placement_error(request, post, workspace, selected_ids, session_me
         message = placement_media_error(placement, kinds) or placement_spec_error(placement, records)
         if message:
             return f"{account.account_name}: {message}"
+        if extra.get("cover_asset_id"):
+            message = cover_error(extra["cover_asset_id"], workspace)
+            if message:
+                return f"{account.account_name}: {message}"
     return None

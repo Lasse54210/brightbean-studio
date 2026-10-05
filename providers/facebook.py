@@ -8,6 +8,7 @@ from urllib.parse import urlencode, urlparse
 
 from .base import SocialProvider
 from .exceptions import APIError, OAuthError, ProviderError, PublishError
+from .facebook_cover import set_video_cover
 from .meta_accounts import fetch_me_accounts, page_can_publish
 from .meta_comments import parse_graph_time
 from .meta_insights import fetch_insights_safe, parse_insights_response
@@ -440,6 +441,7 @@ class FacebookProvider(SocialProvider):
         )
         data = resp.json()
         video_id = data["id"]
+        set_video_cover(self, access_token, BASE_URL, video_id, content)  # Blue Monkey Media fork
         # Resolve the feed post id + permalink so analytics target the page post
         # and the stored URL is shareable. Best-effort: video processing is async,
         # so post_id may not be ready yet — fall back to the bare video id.
@@ -537,6 +539,7 @@ class FacebookProvider(SocialProvider):
             data=finish_payload,
         ).json()
         self._raise_for_reel_phase(finish_data, "publish the Reel")
+        set_video_cover(self, access_token, BASE_URL, video_id, content)  # Blue Monkey Media fork
 
         # Publishing already succeeded. Metadata is best-effort so a delayed
         # post_id or malformed response cannot trigger a duplicate retry.

@@ -119,6 +119,44 @@ class BuildInstagramExtraTests(TestCase):
 
         self.assertNotIn("thumb_offset", extra)
 
+    def test_a_cover_image_is_stored_on_a_reel(self):
+        asset_id = "22222222-2222-2222-2222-222222222222"
+        extra = build_instagram_extra(_post({f"ig_placement_{ACC}": "reel", f"ig_cover_asset_id_{ACC}": asset_id}), ACC)
+
+        self.assertEqual(extra["cover_asset_id"], asset_id)
+
+    def test_a_cover_image_and_a_frame_are_both_kept(self):
+        # Instagram picks cover_url over thumb_offset itself; removing the
+        # image in the panel must bring the frame back without re-picking it.
+        extra = build_instagram_extra(
+            _post(
+                {
+                    f"ig_placement_{ACC}": "reel",
+                    f"ig_cover_timestamp_ms_{ACC}": "1500",
+                    f"ig_cover_asset_id_{ACC}": "22222222-2222-2222-2222-222222222222",
+                }
+            ),
+            ACC,
+        )
+
+        self.assertEqual(extra["thumb_offset"], 1500)
+        self.assertIn("cover_asset_id", extra)
+
+    def test_a_cover_image_that_is_not_an_id_is_dropped(self):
+        extra = build_instagram_extra(
+            _post({f"ig_placement_{ACC}": "reel", f"ig_cover_asset_id_{ACC}": "../etc/passwd"}), ACC
+        )
+
+        self.assertNotIn("cover_asset_id", extra)
+
+    def test_a_cover_image_on_a_story_is_dropped(self):
+        extra = build_instagram_extra(
+            _post({f"ig_placement_{ACC}": "story", f"ig_cover_asset_id_{ACC}": "22222222-2222-2222-2222-222222222222"}),
+            ACC,
+        )
+
+        self.assertNotIn("cover_asset_id", extra)
+
 
 class PlacementMediaErrorTests(TestCase):
     def test_a_reel_needs_a_video(self):
@@ -189,6 +227,50 @@ class InstagramPlacementErrorTests(TestCase):
         )
 
         self.assertIn("bluemonkeymedia", error)
+
+    def test_a_cover_that_is_a_video_is_rejected(self):
+        self._attach("video")
+        cover = MediaAsset.objects.create(
+            workspace=self.workspace, organization=self.org, filename="cover.mp4", media_type="video"
+        )
+
+        error = instagram_placement_error(
+            _post({f"ig_placement_{self.acc_id}": "reel", f"ig_cover_asset_id_{self.acc_id}": str(cover.id)}),
+            self.post,
+            self.workspace,
+            [self.acc_id],
+        )
+
+        self.assertIn("has to be an image", error)
+
+    def test_a_cover_from_another_workspace_is_rejected(self):
+        self._attach("video")
+        other = Workspace.objects.create(organization=self.org, name="Other")
+        cover = MediaAsset.objects.create(workspace=other, organization=self.org, filename="c.png", media_type="image")
+
+        error = instagram_placement_error(
+            _post({f"ig_placement_{self.acc_id}": "reel", f"ig_cover_asset_id_{self.acc_id}": str(cover.id)}),
+            self.post,
+            self.workspace,
+            [self.acc_id],
+        )
+
+        self.assertIn("no longer in the media library", error)
+
+    def test_a_cover_image_passes(self):
+        self._attach("video")
+        cover = MediaAsset.objects.create(
+            workspace=self.workspace, organization=self.org, filename="cover.png", media_type="image"
+        )
+
+        error = instagram_placement_error(
+            _post({f"ig_placement_{self.acc_id}": "reel", f"ig_cover_asset_id_{self.acc_id}": str(cover.id)}),
+            self.post,
+            self.workspace,
+            [self.acc_id],
+        )
+
+        self.assertIsNone(error)
 
     def test_a_reel_on_a_video_passes(self):
         self._attach("video")

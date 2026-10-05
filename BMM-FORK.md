@@ -596,6 +596,80 @@ limiet is dat alleen aan de rand een punt.
 
 **Geen migratie**: alles staat in het bestaande `platform_extra`.
 
+## Eigen afbeelding als cover: Instagram-Reels en Facebook-video's
+
+Gevraagd door een klantteam (oktober 2026): ze kozen een "coverfoto" en die
+kwam niet door. De composer kon tot dan alleen bij een Instagram-Reel een frame
+uit de video kiezen (`thumb_offset`). Nu kan bij een Instagram-Reel en bij een
+Facebook-video of -Reel ook een eigen afbeelding.
+
+**In de panelen.** Onder het frame bij een Instagram-Reel, en in het
+Facebook-videopaneel onder "Publish as", staat dezelfde partial
+`_video_cover_image.html`: **Image from library**, **Upload image** en
+**Remove image**. Dat zijn de bestaande thumbnail-tools van de composer
+(`openThumbnailPicker`, `_uploadThumbnailBlob`), dus ze schrijven
+`thumbnail_asset_id`/`thumbnail_url` in de Alpine-state; per account kan dat
+niet botsen met YouTube, net zoals de TikTok-sleutels bij het frame. Het veld
+heet `ig_cover_asset_id_<acc>` of `fb_cover_asset_id_<acc>`, de server bewaart
+in beide gevallen `platform_extra["cover_asset_id"]`, en bij bewerken zet
+`cover_preview` het terug onder de thumbnail-sleutels. Elk account heeft zijn
+eigen cover: voor Instagram en Facebook dezelfde afbeelding willen is twee keer
+kiezen.
+
+**Wanneer de cover wegvalt.** Instagram: bij een andere plaatsing dan Reel
+(net als het frame). Facebook: zodra de post niet precies een video heeft, zodat
+een kopie of herhaling geen oude cover erft.
+
+**Opslaan weigert** een cover die geen afbeelding is of niet (meer) in de
+bibliotheek van de workspace staat (`errors.instagram_placement` en
+`errors.video_cover`).
+
+**Bij publiceren** maakt `apps/publisher/cover_image.py` van het id een
+`cover_url`: een publieke JPEG. Instagram eist JPEG tot 8 MB (sRGB, 9:16
+aanbevolen, anders snijdt hij het midden eruit, en voor het raster een
+vierkant); Facebook neemt tot 10 MB. Een JPEG onder 8 MB gaat zoals hij is; al
+het andere, ook de PNG's die het team meestal exporteert, wordt een keer omgezet
+(transparantie wordt wit, lange zijde max. 1920) en bewaard als
+`video-covers/<asset-id>.jpg` naast de media. De bucket is anoniem leesbaar per
+object.
+
+- **Instagram** haalt `cover_url` zelf op; de allowlist in
+  `providers/instagram_placement.py` liet hem al door op Reels, en Instagram
+  kiest hem boven `thumb_offset` als beide er zijn.
+- **Facebook** neemt geen cover in de publicatieaanroepen zelf. De
+  Reels-handleiding verwijst naar `POST /{video-id}/thumbnails` met het bestand
+  als `source` en `is_preferred=true` (rechten `pages_read_user_content`,
+  `pages_manage_engagement`, `pages_show_list`, die de Page-login al vraagt).
+  `providers/facebook_cover.py` downloadt de JPEG en doet die aanroep direct na
+  het plaatsen, zowel bij een Reel (na `finish`) als bij een gewone Page-video.
+
+Gaat er iets mis, dan gaat de video gewoon de deur uit, met het frame of de
+standaardcover van het platform, en staat de reden in het log. Bij Facebook is
+dat hard nodig: de cover gaat er pas op als de video al live staat, en een
+exception zou de engine laten herhalen, dus een tweede post. Een cover kwijt is
+vervelend, de post dubbel of kwijt is erger.
+
+**Niet live getest.** Lokaal is alles bewezen tot en met de aanroep, maar of
+Meta de thumbnail op een net gepubliceerde Reel accepteert, zie je pas bij een
+echte post. Kijk de eerste keer in het log van de worker naar `Facebook refused
+the cover` of `Facebook cover for video`.
+
+### Voetafdruk
+
+| Bestand | Wat |
+|---|---|
+| `apps/composer/video_cover.py`, `apps/composer/tests/test_video_cover.py` | **nieuw** |
+| `apps/publisher/cover_image.py`, `apps/publisher/test_cover_image.py` | **nieuw** |
+| `providers/facebook_cover.py`, `tests/providers/test_facebook_cover.py` | **nieuw** |
+| `templates/composer/partials/_video_cover_image.html` | **nieuw** |
+| `apps/publisher/engine.py` | één import en één regel na het samenvoegen van `platform_extra` |
+| `providers/facebook.py` | één import en één regel in `_publish_video` en in `_publish_reel` |
+| `apps/composer/views.py` | één import, één regel in de Facebook-tak van `_sync_platform_posts`, vijf regels validatie in `save_post`, twee regels in het fork-blok van `compose` |
+| `templates/composer/compose.html` | één blok met een include in het Facebook-videopaneel |
+| `apps/composer/instagram_extras.py`, `_instagram_settings.html`, `apps/composer/tests/test_instagram_extras.py`, `tests/providers/test_instagram_placement.py` | eigen bestanden van de fork, uitgebreid |
+
+**Geen migratie.**
+
 ## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
 
 De browser PUT de parts **rechtstreeks** naar de opslag met een presigned URL. Die

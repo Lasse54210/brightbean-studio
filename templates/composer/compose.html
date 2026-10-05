@@ -576,6 +576,11 @@
                             </select>
                             <p class="text-[11px] text-stone-400 mt-1">Reels use Facebook's dedicated vertical-video flow and must be 3-90 seconds. Regular Page video suits long-form and landscape uploads.</p>
                         </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">Cover image</label>
+                            {% include "composer/partials/_video_cover_image.html" with field="fb" %}
+                            <p class="text-[11px] text-stone-400 mt-1">Optional. Without one Facebook picks a frame itself. Use the video's aspect ratio.</p>
+                        </div>
                     </div>
                 </template>
 

@@ -1,0 +1,44 @@
+{% comment %}
+Blue Monkey Media fork: an image of its own as a video cover, shared by the
+Instagram Reel panel and the Facebook video panel. See
+apps/composer/video_cover.py.
+
+Context:
+  field - form prefix, "ig" or "fb". The field sent is
+          <field>_cover_asset_id_<account id>.
+Alpine `accId` comes from the enclosing x-for scope at the include site.
+
+The library picker and the upload button are the composer's thumbnail tools,
+so they write thumbnail_asset_id/thumbnail_url; an account is one platform, so
+that cannot collide with a YouTube thumbnail. The server stores cover_asset_id
+and puts it back under the thumbnail keys on edit.
+{% endcomment %}
+<input type="hidden"
+       :name="'{{ field }}_cover_asset_id_' + accId"
+       :value="platformExtras[accId]?.thumbnail_asset_id || ''">
+<div class="flex items-center gap-2">
+    <template x-if="platformExtras[accId]?.thumbnail_url">
+        <img :src="platformExtras[accId].thumbnail_url"
+             class="h-16 w-9 object-cover rounded-md border border-stone-200" alt="">
+    </template>
+    <button type="button"
+            @click="openThumbnailPicker(accId)"
+            class="text-xs font-medium px-3 py-1.5 rounded-lg border border-stone-200 text-stone-700 hover:border-orange-400 hover:text-orange-600 transition-all cursor-pointer">
+        <span x-text="platformExtras[accId]?.thumbnail_asset_id ? 'Change image' : 'Image from library'"></span>
+    </button>
+    <button type="button"
+            @click="triggerThumbnailUpload(accId)"
+            :disabled="thumbnailUploading[accId]"
+            class="text-xs font-medium px-3 py-1.5 rounded-lg border border-stone-200 text-stone-700 hover:border-orange-400 hover:text-orange-600 transition-all disabled:opacity-50 cursor-pointer">
+        <span x-text="thumbnailUploading[accId] ? 'Uploading…' : 'Upload image'"></span>
+    </button>
+    <input type="file"
+           :data-thumb-upload-for="accId"
+           accept="image/jpeg,image/png,image/webp"
+           class="hidden thumb-upload-input"
+           @change="uploadThumbnail(accId, $event)">
+    <button type="button"
+            x-show="platformExtras[accId]?.thumbnail_asset_id"
+            @click="clearThumbnail(accId)"
+            class="text-xs text-stone-400 hover:text-red-500 cursor-pointer">Remove image</button>
+</div>

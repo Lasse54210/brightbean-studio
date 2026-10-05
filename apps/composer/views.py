@@ -58,6 +58,7 @@ from .models import (
     PostVersion,
     Tag,
 )
+from .video_cover import cover_preview, facebook_cover_error, facebook_cover_extra
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,8 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
                 # Facebook's video endpoint. Choosing regular video therefore
                 # clears the hint rather than recording it.
                 extra.pop("post_type", None)
+            # Blue Monkey Media fork: a cover image (apps/composer/video_cover.py).
+            facebook_cover_extra(request, acc_id, extra, has_exactly_one_video)
             pp.platform_extra = extra
 
         elif account.platform == "youtube":
@@ -648,6 +651,8 @@ def compose(request, workspace_id, post_id=None):
     if post is not None:
         for acc_id, items in own_media_preview(platform_post_list, workspace).items():
             platform_extras.setdefault(acc_id, {})["own_media"] = items
+        for acc_id, (asset_id, url) in cover_preview(platform_post_list, workspace).items():
+            platform_extras.setdefault(acc_id, {}).update(thumbnail_asset_id=asset_id, thumbnail_url=url)
 
     context = {
         "workspace": workspace,
@@ -845,6 +850,11 @@ def save_post(request, workspace_id, post_id=None):
     )
     if ig_error is not None:
         return JsonResponse({"errors": {"instagram_placement": ig_error}}, status=400)
+    fb_cover_error = facebook_cover_error(
+        request, workspace, _parse_selected_account_ids(request.POST.get("selected_accounts", ""))
+    )
+    if fb_cover_error is not None:
+        return JsonResponse({"errors": {"video_cover": fb_cover_error}}, status=400)
 
     li_error = linkedin_mention_error(
         request, workspace, _parse_selected_account_ids(request.POST.get("selected_accounts", ""))

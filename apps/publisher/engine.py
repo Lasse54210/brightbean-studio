@@ -34,6 +34,7 @@ from apps.common.db import in_worker_thread, release_idle_connection
 from apps.composer.models import PlatformPost
 from apps.credentials.models import resolve_platform_credentials
 from apps.media_library.storage import download_to_path
+from apps.publisher.cover_image import apply_cover_image
 from apps.publisher.media_selection import resolve_attachments
 from apps.social_accounts.error_messages import (
     FIRST_COMMENT_GENERIC_MESSAGE,
@@ -758,6 +759,8 @@ class PublishEngine:
             extra = {"tags": platform_post.post.tags or []}
             platform_extra = platform_post.platform_extra or {}
             extra.update(platform_extra)
+            # Blue Monkey Media fork: a video cover image (apps/publisher/cover_image.py).
+            apply_cover_image(extra, platform)
 
             # Inject page_id for Facebook from the connected account.
             if platform == "facebook" and "page_id" not in extra:

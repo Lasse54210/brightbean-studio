@@ -72,6 +72,7 @@ panel said nothing, keep what is stored".
              if (value !== 'reel') {
                  delete this.platformExtras[this.accId].share_to_feed;
                  this.clearTiktokCover(this.accId);
+                 this.clearThumbnail(this.accId);
              }
          },
          /* This account's own files (increment 3). Stored on the PlatformPost as
@@ -343,6 +344,11 @@ panel said nothing, keep what is stored".
                     </div>
                 </template>
             </div>
+            <!-- Or an image of its own (cover_url, wins over the frame). -->
+            <div class="mt-2">
+                {% include "composer/partials/_video_cover_image.html" with field="ig" %}
+            </div>
+            <p class="text-[11px] text-stone-400 mt-1">An image wins over a frame. Best at 9:16; Instagram crops anything else to the middle, and to a square in the grid.</p>
         </div>
     </template>
 </div>
