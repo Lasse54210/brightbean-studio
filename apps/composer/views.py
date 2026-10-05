@@ -35,6 +35,7 @@ from apps.social_accounts.models import SocialAccount
 from apps.workspaces.models import Workspace
 from providers.tiktok import VALID_PRIVACY_LEVELS as TIKTOK_PRIVACY_LEVELS
 
+from .facebook_extras import apply_facebook_placement, facebook_placement_error
 from .forms import ContentCategoryForm, PostForm
 from .instagram_extras import (
     INSTAGRAM_PLATFORMS,
@@ -196,8 +197,10 @@ def _sync_platform_posts(request, post, workspace, initial_status=None):
                 # Facebook's video endpoint. Choosing regular video therefore
                 # clears the hint rather than recording it.
                 extra.pop("post_type", None)
-            # Blue Monkey Media fork: a cover image (apps/composer/video_cover.py).
+            # Blue Monkey Media fork: a cover image (apps/composer/video_cover.py)
+            # and the placement row (apps/composer/facebook_extras.py).
             facebook_cover_extra(request, acc_id, extra, has_exactly_one_video)
+            apply_facebook_placement(request, acc_id, extra, pp.platform_extra, post)
             pp.platform_extra = extra
 
         elif account.platform == "youtube":
@@ -850,6 +853,15 @@ def save_post(request, workspace_id, post_id=None):
     )
     if ig_error is not None:
         return JsonResponse({"errors": {"instagram_placement": ig_error}}, status=400)
+    fb_placement_error = facebook_placement_error(
+        request,
+        post,
+        workspace,
+        _parse_selected_account_ids(request.POST.get("selected_accounts", "")),
+        request.session.get(f"pending_media_{workspace.id}", []),
+    )
+    if fb_placement_error is not None:
+        return JsonResponse({"errors": {"facebook_placement": fb_placement_error}}, status=400)
     fb_cover_error = facebook_cover_error(
         request, workspace, _parse_selected_account_ids(request.POST.get("selected_accounts", ""))
     )

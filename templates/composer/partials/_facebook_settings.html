@@ -1,0 +1,187 @@
+{% comment %}
+Facebook placement panel (Blue Monkey Media fork), modelled on
+_instagram_settings.html.
+
+Replaces upstream's "Publish as" select (Regular Page video / Facebook Reel),
+which only showed with exactly one video attached. This row shows for every
+selected Facebook account: Automatic, Post, Reel and Story. The server side is
+apps/composer/facebook_extras.py; the field is `fb_placement_<account id>`.
+
+compose.html includes this once inside the `x-for accId in selectedAccounts`
+loop, in place of the upstream block.
+
+The hidden `facebook_panel_<acc>` marker is upstream's: it tells the server the
+panel was in the form, so a save can clear a stale hint while a non-composer
+save never wipes extras it did not render. It has to stay.
+
+"Automatic" sends `auto`, which stores nothing; an empty value would mean "the
+row said nothing, keep what is stored".
+
+From the enclosing scope: accId, charLimits, platformExtras, mediaKinds,
+hasSingleVideoAttached, clearThumbnail, platformIconSvg. From outside it, the
+`bmmMedia` store and `window.bmmInstagramSpecs` of static/js/instagram-specs.js
+for the measurements (increment 3); without them only the kind checks run.
+{% endcomment %}
+<div x-show="charLimits[accId]?.platform === 'facebook'"
+     x-data="{
+         fbPlacements: [
+             { value: 'auto',  label: 'Automatic' },
+             { value: 'post',  label: 'Post' },
+             { value: 'reel',  label: 'Reel' },
+             { value: 'story', label: 'Story' },
+         ],
+         /* Mirrors stored_placement() in apps/composer/facebook_extras.py. */
+         get fbChoice() {
+             const extra = this.platformExtras[this.accId] || {};
+             if (extra.post_type === 'reel' || extra.post_type === 'story') return extra.post_type;
+             if (extra.placement === 'post') return 'post';
+             return 'auto';
+         },
+         set fbChoice(value) {
+             if (! this.platformExtras[this.accId]) this.platformExtras[this.accId] = {};
+             const extra = this.platformExtras[this.accId];
+             delete extra.post_type;
+             delete extra.placement;
+             if (value === 'reel' || value === 'story') extra.post_type = value;
+             if (value === 'story') this.clearThumbnail(this.accId);
+             if (value === 'post') extra.placement = 'post';
+         },
+         /* Mirrors placement_media_error() in apps/composer/facebook_extras.py.
+            Same rules, same wording; the server refuses the save too. */
+         fbReason(placement) {
+             const kinds = this.mediaKinds || [];
+             if (placement === 'story' && kinds.length !== 1) return 'A Story takes exactly one photo or one video.';
+             if (placement === 'reel' && ! (kinds.length === 1 && kinds[0] === 'video')) return 'A Reel needs exactly one video and nothing else.';
+             if (placement === 'post') {
+                 if (kinds.includes('video') && kinds.length > 1) return 'A Facebook post takes photos or one video, not both. Remove the extra files or pick Automatic.';
+                 /* 10 is FACEBOOK_MAX_ATTACHED_MEDIA in providers/facebook.py. */
+                 if (kinds.length > 10) return 'A Facebook post holds 10 photos at most. Remove ' + (kinds.length - 10) + '.';
+             }
+             const blocking = this.fbFindings(placement).find(f => f.level === 'block');
+             return blocking ? blocking.message : '';
+         },
+         /* Mirrors check_media() in apps/composer/facebook_specs.py: same
+            numbers, same wording. Reads the first attached file as the browser
+            measured it (the bmmMedia store of static/js/instagram-specs.js);
+            0 means not measured yet and says nothing. Without that script the
+            panel simply has no measurements. */
+         fbFindings(placement) {
+             const specs = window.bmmInstagramSpecs;
+             const items = (this.$store && this.$store.bmmMedia && this.$store.bmmMedia.items) || [];
+             if (! specs || ! items.length || (placement !== 'reel' && placement !== 'story')) return [];
+             const item = items[0];
+             const label = placement === 'reel' ? 'A Facebook Reel' : (item.kind === 'image' ? 'A Facebook Story image' : 'A Facebook Story video');
+             const findings = [];
+             const tolerance = 0.015, nineBySixteen = 9 / 16, sixteenByNine = 16 / 9;
+             const w = item.width, h = item.height;
+             if (w > 0 && h > 0) {
+                 const ratio = w / h, said = specs.formatRatio(ratio);
+                 if (placement === 'reel' && (ratio < nineBySixteen * (1 - tolerance) || ratio > sixteenByNine * (1 + tolerance))) {
+                     findings.push({ level: 'block', message: label + ' has to be between 9:16 and 16:9. This file is ' + said + ', which Facebook will not accept.' });
+                 } else {
+                     if (Math.abs(ratio - nineBySixteen) > nineBySixteen * tolerance) {
+                         findings.push({ level: 'warn', message: 'This file is ' + said + '. ' + label + ' is shown full screen at 9:16.' });
+                     }
+                     if (Math.min(w, h) < 540 || Math.max(w, h) < 960) {
+                         findings.push({ level: 'warn', message: 'This file is ' + w + 'x' + h + '. Facebook asks for at least 540x960 and may refuse anything smaller.' });
+                     }
+                 }
+             }
+             const limits = placement === 'reel' ? [3, 90] : (item.kind === 'image' ? null : [3, 60]);
+             const d = item.duration;
+             if (limits && d > 0) {
+                 if (d < limits[0]) findings.push({ level: 'block', message: label + ' is ' + specs.formatDuration(limits[0]) + ' at the very least. This one is ' + specs.formatDuration(d) + '.' });
+                 else if (d > limits[1]) findings.push({ level: 'block', message: label + ' is ' + specs.formatDuration(limits[1]) + ' at most. This one is ' + specs.formatDuration(d) + '. Trim it in the media library before publishing.' });
+             }
+             return findings.sort((a, b) => (a.level === 'block' ? 0 : 1) - (b.level === 'block' ? 0 : 1));
+         },
+         get fbSpecWarnings() {
+             return this.fbFindings(this.fbChoice).filter(f => f.level === 'warn').map(f => f.message);
+         },
+         /* What Automatic and Post will do with the media attached now. */
+         get fbDerived() {
+             const kinds = this.mediaKinds || [];
+             if (! kinds.length) return 'a text or link post';
+             if (kinds[0] === 'video') return 'a Page video';
+             if (kinds.includes('video')) return 'a post with photos and a video';
+             return kinds.length > 1 ? 'a post with ' + kinds.length + ' photos' : 'a photo post';
+         },
+         /* Automatic stays pickable whatever is attached, as upstream had it,
+            but what the provider will do with mixed media is worth saying
+            before it happens (_publish_multi_photo refuses a video; a video
+            post takes media_urls[0] only). Amber, never a stop. */
+         get fbWarning() {
+             if (this.fbChoice !== 'auto') return '';
+             const kinds = this.mediaKinds || [];
+             if (kinds.length < 2 || ! kinds.includes('video')) return '';
+             if (kinds[0] === 'image') return 'Facebook refuses photos and a video in one post, so this will fail when it publishes. Remove the video or the photos.';
+             const rest = kinds.length - 1;
+             return 'Only the video is published. The other ' + (rest === 1 ? 'file is' : rest + ' files are') + ' left out.';
+         },
+     }"
+     class="border border-stone-200 rounded-xl bg-white p-4 space-y-3">
+    <input type="hidden" :name="'facebook_panel_' + accId" value="1"
+           :disabled="charLimits[accId]?.platform !== 'facebook'">
+    <div class="flex items-center gap-2">
+        <span class="platform-icon w-5 h-5 rounded-[5px] flex items-center justify-center"
+              :class="'pi-' + (charLimits[accId]?.platform || '')"
+              x-html="platformIconSvg(charLimits[accId]?.platform || '')"></span>
+        <span class="text-xs font-semibold text-stone-600" x-text="charLimits[accId]?.name + ' - Placement'"></span>
+    </div>
+
+    <div>
+        <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">
+            Publish as
+        </label>
+        <div class="flex flex-wrap gap-1.5">
+            <template x-for="p in fbPlacements" :key="'fb-' + accId + '-' + p.value">
+                <div class="relative group">
+                    <button type="button"
+                            @click="fbChoice = p.value"
+                            :disabled="!!fbReason(p.value)"
+                            :aria-pressed="fbChoice === p.value"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-all"
+                            :class="fbReason(p.value)
+                                ? 'border-stone-200 bg-stone-50 text-stone-300 cursor-not-allowed'
+                                : (fbChoice === p.value
+                                    ? 'border-orange-300 bg-orange-50 text-orange-700 cursor-pointer'
+                                    : 'border-stone-200 bg-white text-stone-600 hover:border-stone-300 cursor-pointer')"
+                            x-text="p.label"></button>
+                    <span x-show="!!fbReason(p.value)"
+                          class="pointer-events-none absolute left-0 -top-7 opacity-0 group-hover:opacity-100 transition-opacity bg-stone-800 text-white text-[11px] rounded px-2 py-1 whitespace-nowrap z-50 shadow"
+                          x-text="fbReason(p.value)"></span>
+                </div>
+            </template>
+        </div>
+        <input type="hidden" :name="'fb_placement_' + accId" :value="fbChoice"
+               :disabled="charLimits[accId]?.platform !== 'facebook'">
+        <p x-show="fbChoice === 'auto'" class="text-[11px] text-stone-400 mt-1.5"
+           x-text="'Automatic: publishes ' + fbDerived + '. A video is never turned into a Reel by itself.'"></p>
+        <p x-show="fbChoice === 'post'" class="text-[11px] text-stone-400 mt-1.5"
+           x-text="'Post: ' + fbDerived + ' in the Page timeline.'"></p>
+        <p x-show="fbChoice === 'reel'" class="text-[11px] text-stone-400 mt-1.5">
+            Reels use Facebook's vertical-video flow and must be 3-90 seconds. They show in the Page's Reels tab.
+        </p>
+        <p x-show="fbChoice === 'story'" class="text-[11px] text-stone-400 mt-1.5">
+            Story: shown full screen for 24 hours, best at 9:16. A video may run 3-60 seconds. The caption and first comment are not posted.
+        </p>
+        <p x-show="fbChoice !== 'auto' && fbReason(fbChoice)" class="text-[11px] text-red-600 mt-1.5"
+           x-text="fbReason(fbChoice)"></p>
+        <template x-for="warning in fbSpecWarnings" :key="warning">
+            <p class="text-[11px] text-amber-600 mt-1.5 flex gap-1.5">
+                <svg class="w-3.5 h-3.5 flex-shrink-0 mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                <span x-text="warning"></span>
+            </p>
+        </template>
+        <p x-show="fbWarning" class="text-[11px] text-amber-600 mt-1.5 flex gap-1.5">
+            <svg class="w-3.5 h-3.5 flex-shrink-0 mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            <span x-text="fbWarning"></span>
+        </p>
+    </div>
+
+    <div x-show="hasSingleVideoAttached && fbChoice !== 'story'">
+        <label class="block text-[11px] font-semibold text-stone-400 uppercase tracking-wider mb-1.5">Cover image</label>
+        {% include "composer/partials/_video_cover_image.html" with field="fb" %}
+        <p class="text-[11px] text-stone-400 mt-1">Optional. Without one Facebook picks a frame itself. Use the video's aspect ratio.</p>
+    </div>
+</div>

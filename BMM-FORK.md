@@ -665,10 +665,106 @@ the cover` of `Facebook cover for video`.
 | `apps/publisher/engine.py` | één import en één regel na het samenvoegen van `platform_extra` |
 | `providers/facebook.py` | één import en één regel in `_publish_video` en in `_publish_reel` |
 | `apps/composer/views.py` | één import, één regel in de Facebook-tak van `_sync_platform_posts`, vijf regels validatie in `save_post`, twee regels in het fork-blok van `compose` |
-| `templates/composer/compose.html` | één blok met een include in het Facebook-videopaneel |
+| `templates/composer/compose.html` | één blok met een include in het Facebook-videopaneel; sinds de plaatsingsrij (hieronder) staat die include in `_facebook_settings.html` |
 | `apps/composer/instagram_extras.py`, `_instagram_settings.html`, `apps/composer/tests/test_instagram_extras.py`, `tests/providers/test_instagram_placement.py` | eigen bestanden van de fork, uitgebreid |
 
 **Geen migratie.**
+
+## Facebook-plaatsingen: Automatisch, Bericht, Reel, Story
+
+Plan en open increments: `bmm/facebook-plaatsingen-plan.md`. Gevraagd door een
+klantteam (oktober 2026): op Facebook net als bij Instagram zelf het formaat
+kiezen.
+
+**Increment 1, de rij in de composer (2026-10-05).** Upstream had een select
+"Publish as" (Regular Page video / Facebook Reel) die alleen verscheen bij
+precies een video. `_facebook_settings.html` vervangt dat blok in
+`compose.html` door een rij per Facebook-account, altijd zichtbaar:
+
+- **Automatic** slaat niets op; de publisher leidt het formaat af zoals altijd
+  (video wordt Page-video, foto's een fotobericht, geen media tekst of link). Hij
+  blijft altijd kiesbaar, net als bij upstream, maar zegt in het oranje wat er
+  met gemengde media gebeurt: foto's plus video weigert Facebook bij het
+  publiceren, een video met extra bestanden publiceert alleen de video.
+- **Post** bewaart `platform_extra["placement"] = "post"` en geen `post_type`,
+  zodat de afleiding hetzelfde blijft en een "video"-hint nooit een verwisselde
+  bijlage overleeft. De composer en de server weigeren foto's en een video
+  samen, meer dan een video en meer dan 10 foto's: precies wat
+  `_publish_multi_photo` anders pas bij het publiceren weigert.
+- **Reel** is upstreams eigen hint (`post_type = "reel"`), dus posts van voor
+  deze ronde komen als Reel terug. Alleen bij precies een video.
+- **Story** (sinds increment 2) bewaart `post_type = "story"`, alleen bij precies
+  een foto of een video. De cover valt dan weg.
+
+Het veld is `fb_placement_<account>`. Zonder dat veld (API, oud formulier)
+doet `apply_facebook_placement` niets en geldt upstreams afhandeling van
+`facebook_post_type_<account>` nog gewoon. Een leeg of onbekend veld houdt de
+opgeslagen keuze. De cover-afbeelding zit in hetzelfde paneel en verschijnt bij
+precies een video.
+
+### Voetafdruk
+
+| Bestand | Wat |
+|---|---|
+| `apps/composer/facebook_extras.py`, `apps/composer/tests/test_facebook_extras.py` | **nieuw** |
+| `templates/composer/partials/_facebook_settings.html` | **nieuw**, met upstreams `facebook_panel_`-marker en de cover-include |
+| `templates/composer/compose.html` | upstreams blok "Facebook video destination" vervangen door een `x-for` met een include |
+| `apps/composer/views.py` | één import, één regel in de Facebook-tak van `_sync_platform_posts`, acht regels validatie in `save_post` naast die van de cover |
+
+**Geen migratie.**
+
+**Increment 2, Story publiceren (2026-10-05).** `providers/facebook_stories.py`,
+nagelopen tegen de Page Stories API-referentie:
+
+- **Foto:** ongepubliceerd naar `/{page}/photos`, dan `/{page}/photo_stories`
+  met `photo_id`. Mislukt die tweede stap, dan gaat de klaargezette foto weer weg
+  (`_delete_staged_photos`) voordat de engine opnieuw probeert.
+- **Video:** start, upload en finish op `/{page}/video_stories`, net als een
+  Reel (rupload met `file_url`-header). Een 2xx met `success: false` faalt met de
+  naam van de stap.
+- **Duur:** de referentie zegt zowel "3 to 90 seconds" als "can not exceed 60
+  seconds". Wij houden 3 tot 60 aan en weigeren daarbuiten voor de eerste aanroep;
+  een onbekende duur gaat door, net als bij de Reel.
+- **Geen tekst:** een Story heeft geen bijschrift, dus `content.text` gaat niet
+  mee. Alles na een geslaagde publicatie raiset nooit; zonder `post_id` in het
+  antwoord wordt het `video_id` of `photo_id` bewaard.
+- **Geen eerste reactie op een Story**, ook niet op Instagram: geen van beide
+  neemt reacties op een Story via de API, dus de engine zet er geen meer in de
+  wachtrij.
+
+`supported_post_types` van de provider is niet aangepast: de engine leest die
+alleen om "alleen video" te herkennen, en STORY gaat via `publish_post`.
+
+| Bestand | Wat |
+|---|---|
+| `providers/facebook_stories.py`, `tests/providers/test_facebook_stories.py` | **nieuw** |
+| `apps/publisher/test_story_first_comment.py` | **nieuw** |
+| `providers/facebook.py` | één import en twee regels bovenaan `publish_post` |
+| `apps/publisher/engine.py` | drie regels in `_maybe_schedule_first_comment` |
+
+**Niet live getest.** Lokaal is alles bewezen tot en met de aanroepen. Het
+team test echt op een eigen pagina; Claude publiceert niet op een klantpagina.
+
+**Increment 3, duur en formaat (2026-10-05).** `apps/composer/facebook_specs.py`,
+naar het model van `instagram_specs.py` (en met diens `Finding` en
+formattering), gespiegeld in `_facebook_settings.html` op de metingen uit de
+`bmmMedia`-store. Een stop maakt de knop grijs en de server weigert de save;
+een waarschuwing is oranje en houdt niets tegen.
+
+| Wat | Reel | Story-video | Story-foto |
+|---|---|---|---|
+| Duur | 3-90 s, **stop** (Meta-fout 1363128) | 3-60 s, **stop** | - |
+| Verhouding | buiten 9:16..16:9 **stop** (Meta-fout 1363040); anders dan 9:16 waarschuwing | anders dan 9:16 waarschuwing | anders dan 9:16 waarschuwing |
+| Resolutie | onder 540x960 waarschuwing | idem | idem |
+
+Framerate (24-60 fps) en bestandsgrootte (foto tot 10 MB) meet de
+mediabibliotheek niet, dus die worden niet gecontroleerd. Bericht en
+Automatisch worden niet gemeten.
+
+| Bestand | Wat |
+|---|---|
+| `apps/composer/facebook_specs.py`, `apps/composer/tests/test_facebook_specs.py` | **nieuw** |
+| `apps/composer/facebook_extras.py`, `_facebook_settings.html`, `apps/composer/tests/test_facebook_extras.py` | eigen bestanden, uitgebreid |
 
 ## Verplicht: `S3_PUBLIC_ENDPOINT_URL`
 

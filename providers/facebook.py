@@ -9,6 +9,7 @@ from urllib.parse import urlencode, urlparse
 from .base import SocialProvider
 from .exceptions import APIError, OAuthError, ProviderError, PublishError
 from .facebook_cover import set_video_cover
+from .facebook_stories import publish_story
 from .meta_accounts import fetch_me_accounts, page_can_publish
 from .meta_comments import parse_graph_time
 from .meta_insights import fetch_insights_safe, parse_insights_response
@@ -304,6 +305,8 @@ class FacebookProvider(SocialProvider):
                 platform=self.platform_name,
             )
 
+        if content.post_type == PostType.STORY:  # Blue Monkey Media fork
+            return publish_story(self, access_token, BASE_URL, page_id, content)
         if content.post_type == PostType.IMAGE and content.media_urls:
             return self._publish_photo(access_token, page_id, content)
         if content.post_type == PostType.REEL:

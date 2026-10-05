@@ -507,6 +507,9 @@ class PublishEngine:
             return
         if not platform_post.social_account.supports_first_comment():
             return
+        # Blue Monkey Media fork: a Story (Instagram or Facebook) takes no comments.
+        if (platform_post.platform_extra or {}).get("post_type") == "story":
+            return
         if not platform_post.effective_first_comment:
             return
         if platform_post.first_comment_status in (

@@ -1,6 +1,8 @@
 # Plan: Facebook-plaatsingen kiezen, net als bij Instagram
 
-Stand 2026-10-05. Nog niets van gebouwd. Vastgelegd op verzoek van de
+Stand 2026-10-05. Increment 1, 2 en 3 gebouwd (zie "Facebook-plaatsingen" in
+`BMM-FORK.md`); increment 4 open, alleen als het team erom vraagt. Videoduur van een Story: 3 tot 60 s
+(de referentie noemt ook 90, wij houden de strengste aan). Vastgelegd op verzoek van de
 beheerder, na feedback van een klantteam: op Facebook wil je net als op
 Instagram zelf kiezen in welk formaat een post verschijnt.
 
@@ -85,11 +87,10 @@ krijgt en het bericht de 4:5. Pas doen als het team erom vraagt.
 - Deze repo is publiek: geen klant- of persoonsnamen in code, commits of dit
   plan.
 
-## Eerst beslissen
+## Besloten (2026-10-05)
 
-1. Komt **Story** in increment 1 al in de rij (en uitgegrijsd tot increment 2),
-   of pas als de provider hem kan?
-2. Moet "Bericht" met meerdere foto's ook een video kunnen bevatten? Facebook
-   neemt dat niet in een `attached_media`-post; voorstel: weigeren met uitleg.
-3. Is er een testpagina op Facebook waarop het team Story en Reel echt mag
-   proberen?
+1. **Story** staat in increment 1 al in de rij, grijs tot increment 2.
+2. **Bericht met foto's en een video** wordt geweigerd met uitleg. Automatisch
+   blijft kiesbaar en waarschuwt in het oranje.
+3. **Echt testen** doet het team zelf, op een klantpagina. De ontwikkelaar
+   publiceert nooit op een klantpagina; lokaal alleen met nepaccounts.
